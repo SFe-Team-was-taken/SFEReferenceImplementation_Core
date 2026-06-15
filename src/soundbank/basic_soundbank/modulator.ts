@@ -273,13 +273,13 @@ const defaultSoundFont2Modulators = [
 
 const sf24VelFcModulator = [
     // SF2.04 velocity to filter cutoff
-    new DecodedModulator(0x0102, 0x0, generatorTypes.initialFilterFc, -2400, 0)
+    new DecodedModulator(0x0102, 0x0, GeneratorTypes.initialFilterFc, -2400, 0)
 ];
 
 const sf21VelFcModulator = [
     // SF2.01 velocity to filter cutoff
     // Not in use currently
-    new DecodedModulator(0x0502, 0x0, generatorTypes.initialFilterFc, -2400, 0)
+    new DecodedModulator(0x0502, 0x0, GeneratorTypes.initialFilterFc, -2400, 0)
 ];
 
 const defaultSpessaSynthModulators = [

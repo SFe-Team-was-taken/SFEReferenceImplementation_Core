@@ -112,8 +112,8 @@ export class SoundFontSample extends BasicSample {
                                 break;
 
                             case "pusHead":
-                                // Opus
-                                throw new Error(`Opus is currently unsupported. More information at https://github.com/SFe-Team-was-taken/SFeReferenceImplementation_Core/issues/1.`);
+                                // Opus - unsupported
+                                throw new Error(`Unsupported sample type: opus`);
                                 break;
 
                             case "vorbis":

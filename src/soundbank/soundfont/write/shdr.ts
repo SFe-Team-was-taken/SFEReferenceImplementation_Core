@@ -22,7 +22,7 @@ export function getSHDR(
     const xshdrData = new IndexedByteArray(shdrSize);
     const encoder = new TextEncoder();
     let maxSampleLink = 0;
-    bank.samples.forEach((sample, index) => {
+    for (const [index, sample] of bank.samples.entries()) {
         const encodedText = encoder.encode(sample.name);
         if (encodedText.length <= 20)
         {

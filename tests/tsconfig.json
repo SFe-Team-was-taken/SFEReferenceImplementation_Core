@@ -1,0 +1,10 @@
+{
+    "extends": "../tsconfig.json",
+    "compilerOptions": {
+        "types": ["node"],
+        "moduleResolution": "bundler",
+        "noEmit": true
+    },
+    "exclude": ["files", "midi_file/generated"],
+    "include": ["./**/*.ts"]
+}

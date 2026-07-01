@@ -1,12 +1,12 @@
-import { SpessaSynthWarn } from "../../utils/loggin";
 import { IndexedByteArray } from "../../utils/indexed_array";
 import { stbvorbis } from "../../externals/stbvorbis_sync/stbvorbis_wrapper";
-import { type SampleType, sampleTypes } from "../enums";
+import { type SampleType, SampleTypes } from "../enums";
 import type { BasicInstrument } from "./basic_instrument";
 import type { SampleEncodingFunction } from "../types";
+import { SpessaLog } from "../../utils/loggin";
 
 // Should be reasonable for most cases
-const RESAMPLE_RATE = 48000;
+const RESAMPLE_RATE = 48_000;
 
 export class BasicSample {
     /**
@@ -40,12 +40,18 @@ export class BasicSample {
     public sampleType: SampleType;
 
     /**
-     * Relative to the start of the sample in sample points.
+     * The sample's loop start index, inclusive.
+     * In sample data points, relative to the start of the sample.
+     *
+     * Minimum allowed value is 0.
      */
     public loopStart: number;
 
     /**
-     * Relative to the start of the sample in sample points.
+     * The sample's loop end index, exclusive.
+     * In sample data points, relative to the start of the sample.
+     *
+     * Maximum allowed value is the sample data length.
      */
     public loopEnd: number;
     /**
@@ -67,14 +73,14 @@ export class BasicSample {
     protected audioData?: Float32Array;
 
     /**
-     * The basic representation of a sample
-     * @param sampleName The sample's name
-     * @param sampleRate The sample's rate in Hz
-     * @param originalKey The sample's pitch as a MIDI note number
-     * @param pitchCorrection The sample's pitch correction in cents
-     * @param sampleType The sample's type, an enum that can indicate SF3
-     * @param loopStart The sample's loop start relative to the sample start in sample points
-     * @param loopEnd The sample's loop end relative to the sample start in sample points
+     * The basic representation of a sample.
+     * @param sampleName The sample's name.
+     * @param sampleRate The sample's rate in Hz.
+     * @param originalKey The sample's pitch as a MIDI note number.
+     * @param pitchCorrection The sample's pitch correction in cents.
+     * @param sampleType The sample's type, an enum that can indicate SF3.
+     * @param loopStart The sample's loop start relative to the sample start in sample points.
+     * @param loopEnd The sample's loop end relative to the sample start in sample points. Inclusive.
      */
     public constructor(
         sampleName: string,
@@ -106,9 +112,9 @@ export class BasicSample {
      */
     public get isLinked(): boolean {
         return (
-            this.sampleType === sampleTypes.rightSample ||
-            this.sampleType === sampleTypes.leftSample ||
-            this.sampleType === sampleTypes.linkedSample
+            this.sampleType === SampleTypes.rightSample ||
+            this.sampleType === SampleTypes.leftSample ||
+            this.sampleType === SampleTypes.linkedSample
         );
     }
 
@@ -164,16 +170,16 @@ export class BasicSample {
         try {
             // If the sample rate is too low or too high, resample
             let audioData = this.getAudioData();
-            if (this.sampleRate < 8000 || this.sampleRate > 96000) {
+            if (this.sampleRate < 8000 || this.sampleRate > 96_000) {
                 this.resampleData(RESAMPLE_RATE);
                 audioData = this.getAudioData();
             }
             const compressed = await encodeVorbis(audioData, this.sampleRate);
             this.setCompressedData(compressed);
-        } catch (e) {
-            SpessaSynthWarn(
+        } catch (error) {
+            SpessaLog.warn(
                 `Failed to compress ${this.name}. Leaving as uncompressed!`,
-                e
+                error
             );
             this.compressedData = undefined;
         }
@@ -194,7 +200,7 @@ export class BasicSample {
 
             this.linkedSample = undefined;
         }
-        if ((type & 0x8000) > 0) {
+        if ((type & 0x80_00) > 0) {
             throw new Error("ROM samples are not supported.");
         }
     }
@@ -204,7 +210,7 @@ export class BasicSample {
      * Unlinks the sample from its stereo link if it has any.
      */
     public unlinkSample() {
-        this.setSampleType(sampleTypes.monoSample);
+        this.setSampleType(SampleTypes.monoSample);
     }
 
     // noinspection JSUnusedGlobalSymbols
@@ -222,17 +228,28 @@ export class BasicSample {
         }
         this.linkedSample = sample;
         sample.linkedSample = this;
-        if (type === sampleTypes.leftSample) {
-            this.setSampleType(sampleTypes.leftSample);
-            sample.setSampleType(sampleTypes.rightSample);
-        } else if (type === sampleTypes.rightSample) {
-            this.setSampleType(sampleTypes.rightSample);
-            sample.setSampleType(sampleTypes.leftSample);
-        } else if (type === sampleTypes.linkedSample) {
-            this.setSampleType(sampleTypes.linkedSample);
-            sample.setSampleType(sampleTypes.linkedSample);
-        } else {
-            throw new Error("Invalid sample type: " + type);
+        switch (type) {
+            case SampleTypes.leftSample: {
+                this.setSampleType(SampleTypes.leftSample);
+                sample.setSampleType(SampleTypes.rightSample);
+
+                break;
+            }
+            case SampleTypes.rightSample: {
+                this.setSampleType(SampleTypes.rightSample);
+                sample.setSampleType(SampleTypes.leftSample);
+
+                break;
+            }
+            case SampleTypes.linkedSample: {
+                this.setSampleType(SampleTypes.linkedSample);
+                sample.setSampleType(SampleTypes.linkedSample);
+
+                break;
+            }
+            default: {
+                throw new Error("Invalid sample type: " + type);
+            }
         }
     }
 
@@ -250,8 +267,8 @@ export class BasicSample {
      */
     public unlinkFrom(instrument: BasicInstrument) {
         const index = this.linkedTo.indexOf(instrument);
-        if (index < 0) {
-            SpessaSynthWarn(
+        if (index === -1) {
+            SpessaLog.warn(
                 `Cannot unlink ${instrument.name} from ${this.name}: not linked.`
             );
             return;
@@ -310,12 +327,12 @@ export class BasicSample {
         const data16 = new Int16Array(data.length);
         const len = data.length;
         for (let i = 0; i < len; i++) {
-            let sample = data[i] * 32768;
+            let sample = data[i] * 32_768;
             // Clamp for safety (do not use Math.max/Math.min here)
-            if (sample > 32767) {
-                sample = 32767;
-            } else if (sample < -32768) {
-                sample = -32768;
+            if (sample > 32_767) {
+                sample = 32_767;
+            } else if (sample < -32_768) {
+                sample = -32_768;
             }
             data16[i] = sample;
         }
@@ -336,7 +353,7 @@ export class BasicSample {
             const vorbis = stbvorbis.decode(this.compressedData);
             const decoded = vorbis.data[0];
             if (decoded === undefined) {
-                SpessaSynthWarn(
+                SpessaLog.warn(
                     `Error decoding sample ${this.name}: Vorbis decode returned undefined.`
                 );
                 return new Float32Array(0);
@@ -347,16 +364,16 @@ export class BasicSample {
                 // Magic number is 32,767 / 32,768
                 decoded[i] = Math.max(
                     -1,
-                    Math.min(decoded[i], 0.999969482421875)
+                    Math.min(decoded[i], 0.999_969_482_421_875)
                 );
             }
             return decoded;
-        } catch (e) {
+        } catch (error) {
             // Do not error out, fill with silence
-            SpessaSynthWarn(
-                `Error decoding sample ${this.name}: ${e as Error}`
+            SpessaLog.warn(
+                `Error decoding sample ${this.name}: ${error as Error}`
             );
-            return new Float32Array(this.loopEnd + 1);
+            return new Float32Array(this.loopEnd);
         }
     }
 }
@@ -366,6 +383,6 @@ export class EmptySample extends BasicSample {
      * A simplified class for creating samples.
      */
     public constructor() {
-        super("", 44100, 60, 0, sampleTypes.monoSample, 0, 0);
+        super("", 44_100, 60, 0, SampleTypes.monoSample, 0, 0);
     }
 }

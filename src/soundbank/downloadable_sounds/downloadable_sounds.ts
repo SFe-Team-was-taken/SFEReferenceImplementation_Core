@@ -4,51 +4,41 @@ import { DownloadableSoundsInstrument } from "./instrument";
 import type {
     DLSInfoFourCC,
     DLSWriteOptions,
+    ProgressFunction,
     SF2VersionTag,
-    SoundBankInfoData,
-    SoundBankInfoFourCC
+    SoundBankInfoData
 } from "../types";
 import { IndexedByteArray } from "../../utils/indexed_array";
-import { consoleColors } from "../../utils/other";
-import {
-    findRIFFListType,
-    readRIFFChunk,
-    RIFFChunk,
-    writeRIFFChunkParts,
-    writeRIFFChunkRaw
-} from "../../utils/riff_chunk";
+import { ConsoleColors } from "../../utils/other";
+import { RIFFChunk } from "../../utils/riff_chunk";
 import {
     getStringBytes,
     readBinaryStringIndexed
 } from "../../utils/byte_functions/string";
-import { parseDateString } from "../../utils/load_date";
+import { parseDateString, toISODateString } from "../../utils/date";
 import {
     readLittleEndianIndexed,
     writeDword
 } from "../../utils/byte_functions/little_endian";
-import {
-    SpessaSynthGroup,
-    SpessaSynthGroupCollapsed,
-    SpessaSynthGroupEnd,
-    SpessaSynthInfo,
-    SpessaSynthWarn
-} from "../../utils/loggin";
+import { SpessaLog } from "../../utils/loggin";
 import { BasicSoundBank } from "../basic_soundbank/basic_soundbank";
 import { BankSelectHacks } from "../../utils/midi_hacks";
 import { DownloadableSoundsRegion } from "./region";
+import { fillWithDefaults } from "../../utils/fill_with_defaults";
 
 export const DEFAULT_DLS_OPTIONS: DLSWriteOptions = {
-    progressFunction: undefined
+    software: "SpessaSynth" // ( ͡° ͜ʖ ͡°)
 };
 
 export class DownloadableSounds extends DLSVerifier {
     public readonly samples = new Array<DownloadableSoundsSample>();
     public readonly instruments = new Array<DownloadableSoundsInstrument>();
     public soundBankInfo: SoundBankInfoData = {
-        name: "Unnamed",
+        name: "Unnamed DLS sound bank",
         creationDate: new Date(),
         software: "SpessaSynth",
         soundEngine: "DLS Level 2.2",
+        product: "SpessaSynth DLS",
         version: {
             major: 2,
             minor: 4
@@ -60,10 +50,10 @@ export class DownloadableSounds extends DLSVerifier {
             throw new Error("No data provided!");
         }
         const dataArray = new IndexedByteArray(buffer);
-        SpessaSynthGroup("%cParsing DLS file...", consoleColors.info);
+        SpessaLog.group("%cParsing DLS file...", ConsoleColors.info);
 
         // Read the main chunk
-        const firstChunk = readRIFFChunk(dataArray, false);
+        const firstChunk = RIFFChunk.read(dataArray, false);
         this.verifyHeader(firstChunk, "RIFF");
         this.verifyText(
             readBinaryStringIndexed(dataArray, 4).toLowerCase(),
@@ -75,57 +65,60 @@ export class DownloadableSounds extends DLSVerifier {
          */
         const chunks: RIFFChunk[] = [];
         while (dataArray.currentIndex < dataArray.length) {
-            chunks.push(readRIFFChunk(dataArray));
+            chunks.push(RIFFChunk.read(dataArray));
         }
 
         const dls = new DownloadableSounds();
 
-        // Set some defaults
-        dls.soundBankInfo.name = "Unnamed DLS";
-        dls.soundBankInfo.product = "SpessaSynth DLS";
-        dls.soundBankInfo.comment = "(no description)";
-
         // Read info
-        const infoChunk = findRIFFListType(chunks, "INFO");
+        const infoChunk = RIFFChunk.findListType(chunks, "INFO");
         if (infoChunk) {
             while (infoChunk.data.currentIndex < infoChunk.data.length) {
-                const infoPart = readRIFFChunk(infoChunk.data);
+                const infoPart = RIFFChunk.read(infoChunk.data);
                 const headerTyped = infoPart.header as DLSInfoFourCC;
                 const text = readBinaryStringIndexed(
                     infoPart.data,
                     infoPart.size
                 );
                 switch (headerTyped) {
-                    case "INAM":
+                    case "INAM": {
                         dls.soundBankInfo.name = text;
                         break;
+                    }
 
-                    case "ICRD":
+                    case "ICRD": {
                         dls.soundBankInfo.creationDate = parseDateString(text);
                         break;
+                    }
 
-                    case "ICMT":
+                    case "ICMT": {
                         dls.soundBankInfo.comment = text;
                         break;
+                    }
 
-                    case "ISBJ":
+                    case "ISBJ": {
                         dls.soundBankInfo.subject = text;
                         break;
+                    }
 
-                    case "ICOP":
+                    case "ICOP": {
                         dls.soundBankInfo.copyright = text;
                         break;
+                    }
 
-                    case "IENG":
+                    case "IENG": {
                         dls.soundBankInfo.engineer = text;
                         break;
+                    }
 
-                    case "IPRD":
+                    case "IPRD": {
                         dls.soundBankInfo.product = text;
                         break;
+                    }
 
-                    case "ISFT":
+                    case "ISFT": {
                         dls.soundBankInfo.software = text;
+                    }
                 }
             }
         }
@@ -139,45 +132,45 @@ export class DownloadableSounds extends DLSVerifier {
             return 5 as never;
         }
         const instrumentAmount = readLittleEndianIndexed(colhChunk.data, 4);
-        SpessaSynthInfo(
+        SpessaLog.info(
             `%cInstruments amount: %c${instrumentAmount}`,
-            consoleColors.info,
-            consoleColors.recognized
+            ConsoleColors.info,
+            ConsoleColors.recognized
         );
 
         // Read the wave list
-        const waveListChunk = findRIFFListType(chunks, "wvpl");
+        const waveListChunk = RIFFChunk.findListType(chunks, "wvpl");
         if (!waveListChunk) {
             this.parsingError("No wvpl chunk!");
             return 5 as never;
         }
         const waveList = this.verifyAndReadList(waveListChunk, "wvpl");
-        waveList.forEach((wave) => {
+        for (const wave of waveList) {
             dls.samples.push(DownloadableSoundsSample.read(wave));
-        });
+        }
 
         // Read the instrument list
-        const instrumentListChunk = findRIFFListType(chunks, "lins");
+        const instrumentListChunk = RIFFChunk.findListType(chunks, "lins");
         if (!instrumentListChunk) {
             this.parsingError("No lins chunk!");
             return 5 as never;
         }
         const instruments = this.verifyAndReadList(instrumentListChunk, "lins");
-        SpessaSynthGroupCollapsed(
+        SpessaLog.groupCollapsed(
             "%cLoading instruments...",
-            consoleColors.info
+            ConsoleColors.info
         );
         if (instruments.length !== instrumentAmount) {
-            SpessaSynthWarn(
+            SpessaLog.warn(
                 `Colh reported invalid amount of instruments. Detected ${instruments.length}, expected ${instrumentAmount}`
             );
         }
-        instruments.forEach((ins) => {
+        for (const ins of instruments) {
             dls.instruments.push(
                 DownloadableSoundsInstrument.read(dls.samples, ins)
             );
-        });
-        SpessaSynthGroupEnd();
+        }
+        SpessaLog.groupEnd();
 
         /*
          MobileBAE Instrument aliasing
@@ -187,9 +180,9 @@ export class DownloadableSounds extends DLSVerifier {
         */
         const aliasingChunk = chunks.find((c) => c.header === "pgal");
         if (aliasingChunk) {
-            SpessaSynthInfo(
+            SpessaLog.info(
                 "%cFound the instrument aliasing chunk!",
-                consoleColors.recognized
+                ConsoleColors.recognized
             );
             const pgalData = aliasingChunk.data;
             // Check for the unused 4 bytes at the start
@@ -204,10 +197,10 @@ export class DownloadableSounds extends DLSVerifier {
             }
             // Read the drum alias
             const drumInstrument = dls.instruments.find(
-                (i) => BankSelectHacks.isXGDrums(i.bankMSB) || i.isGMGSDrum
+                (i) => BankSelectHacks.isXGDrum(i.bankMSB) || i.isGMGSDrum
             );
             if (!drumInstrument) {
-                SpessaSynthWarn(
+                SpessaLog.warn(
                     "MobileBAE aliasing chunk without a drum preset. Aborting!"
                 );
                 return dls;
@@ -227,7 +220,7 @@ export class DownloadableSounds extends DLSVerifier {
                     (r) => r.keyRange.max === alias && r.keyRange.min === alias
                 );
                 if (!region) {
-                    SpessaSynthWarn(
+                    SpessaLog.warn(
                         `Invalid drum alias ${keyNum} to ${alias}: region does not exist.`
                     );
                     continue;
@@ -247,7 +240,7 @@ export class DownloadableSounds extends DLSVerifier {
                 const aliasProgram = pgalData[pgalData.currentIndex++];
                 let nullByte = pgalData[pgalData.currentIndex++];
                 if (nullByte !== 0) {
-                    SpessaSynthWarn(
+                    SpessaLog.warn(
                         `Invalid alias byte. Expected 0, got ${nullByte}`
                     );
                 }
@@ -257,7 +250,7 @@ export class DownloadableSounds extends DLSVerifier {
                 const inputProgram = pgalData[pgalData.currentIndex++];
                 nullByte = pgalData[pgalData.currentIndex++];
                 if (nullByte !== 0) {
-                    SpessaSynthWarn(
+                    SpessaLog.warn(
                         `Invalid alias header. Expected 0, got ${nullByte}`
                     );
                 }
@@ -270,7 +263,7 @@ export class DownloadableSounds extends DLSVerifier {
                         !inst.isGMGSDrum
                 );
                 if (!inputInstrument) {
-                    SpessaSynthWarn(
+                    SpessaLog.warn(
                         `Invalid alias. Missing instrument: ${inputBankLSB}:${inputBankMSB}:${inputProgram}`
                     );
                     continue;
@@ -285,45 +278,48 @@ export class DownloadableSounds extends DLSVerifier {
             }
         }
 
-        SpessaSynthInfo(
+        SpessaLog.info(
             `%cParsing finished! %c"${dls.soundBankInfo.name || "UNNAMED"}"%c has %c${dls.instruments.length}%c instruments and %c${dls.samples.length}%c samples.`,
-            consoleColors.info,
-            consoleColors.recognized,
-            consoleColors.info,
-            consoleColors.recognized,
-            consoleColors.info,
-            consoleColors.recognized,
-            consoleColors.info
+            ConsoleColors.info,
+            ConsoleColors.recognized,
+            ConsoleColors.info,
+            ConsoleColors.recognized,
+            ConsoleColors.info,
+            ConsoleColors.recognized,
+            ConsoleColors.info
         );
-        SpessaSynthGroupEnd();
+        SpessaLog.groupEnd();
         return dls;
     }
 
     /**
      * Performs a full conversion from BasicSoundBank to DownloadableSounds.
+     * Includes an optional progress function for transforming the samples.
      */
-    public static fromSF(bank: BasicSoundBank) {
-        SpessaSynthGroupCollapsed(
+    public static fromSF(
+        bank: BasicSoundBank,
+        progressFunc?: ProgressFunction
+    ) {
+        SpessaLog.groupCollapsed(
             "%cSaving SF2 to DLS level 2...",
-            consoleColors.info
+            ConsoleColors.info
         );
         const dls = new DownloadableSounds();
         dls.soundBankInfo = { ...bank.soundBankInfo };
-        dls.soundBankInfo.comment =
-            (dls.soundBankInfo.comment ?? "(No description)") +
-            "\nConverted from SF2 to DLS with SpessaSynth";
 
-        bank.samples.forEach((s) => {
+        for (let i = 0; i < bank.samples.length; i++) {
+            const s = bank.samples[i];
             dls.samples.push(DownloadableSoundsSample.fromSFSample(s));
-        });
-        bank.presets.forEach((p) => {
+            progressFunc?.(i / bank.samples.length);
+        }
+        for (const p of bank.presets) {
             dls.instruments.push(
                 DownloadableSoundsInstrument.fromSFPreset(p, bank.samples)
             );
-        });
+        }
 
-        SpessaSynthInfo("%cConversion complete!", consoleColors.recognized);
-        SpessaSynthGroupEnd();
+        SpessaLog.info("%cConversion complete!", ConsoleColors.recognized);
+        SpessaLog.groupEnd();
         return dls;
     }
 
@@ -331,66 +327,73 @@ export class DownloadableSounds extends DLSVerifier {
         for (const [info, value] of Object.entries(dls.soundBankInfo)) {
             if (typeof value === "object" && "major" in value) {
                 const v = value as SF2VersionTag;
-                SpessaSynthInfo(
+                SpessaLog.info(
                     `%c${info}: %c"${v.major}.${v.minor}"`,
-                    consoleColors.info,
-                    consoleColors.recognized
+                    ConsoleColors.info,
+                    ConsoleColors.recognized
                 );
-            }
-            SpessaSynthInfo(
-                `%c${info}: %c${(value as string | Date).toLocaleString()}`,
-                consoleColors.info,
-                consoleColors.recognized
-            );
+            } else
+                SpessaLog.info(
+                    `%c${info}: %c${(value as string | Date).toLocaleString()}`,
+                    ConsoleColors.info,
+                    ConsoleColors.recognized
+                );
         }
     }
 
     /**
-     * Writes an SF2 file
-     * @param options
+     * Writes a DLS file.
+     * @param writeOptions the options for writing the file.
      */
-    public async write(options: DLSWriteOptions = DEFAULT_DLS_OPTIONS) {
-        SpessaSynthGroupCollapsed("%cSaving DLS...", consoleColors.info);
+    public write(writeOptions: Partial<DLSWriteOptions> = DEFAULT_DLS_OPTIONS) {
+        const options: DLSWriteOptions = fillWithDefaults(
+            writeOptions,
+            DEFAULT_DLS_OPTIONS
+        );
+        SpessaLog.groupCollapsed("%cSaving DLS...", ConsoleColors.info);
         // Write colh
         const colhNum = new IndexedByteArray(4);
         writeDword(colhNum, this.instruments.length);
-        const colh = writeRIFFChunkRaw("colh", colhNum);
-        SpessaSynthGroupCollapsed(
+        const colh = RIFFChunk.write("colh", colhNum);
+        SpessaLog.groupCollapsed(
             "%cWriting instruments...",
-            consoleColors.info
+            ConsoleColors.info
         );
 
-        const lins = writeRIFFChunkParts(
+        const lins = RIFFChunk.getParts(
             "lins",
             this.instruments.map((i) => i.write()),
             true
         );
-        SpessaSynthInfo("%cSuccess!", consoleColors.recognized);
-        SpessaSynthGroupEnd();
+        SpessaLog.info("%cSuccess!", ConsoleColors.recognized);
+        SpessaLog.groupEnd();
 
-        SpessaSynthGroupCollapsed(
+        SpessaLog.groupCollapsed(
             "%cWriting WAVE samples...",
-            consoleColors.info
+            ConsoleColors.info
         );
 
         let currentIndex = 0;
         const ptblOffsets = [];
-        const samples: IndexedByteArray[] = [];
+        const samples: Uint8Array[] = [];
         let written = 0;
         for (const s of this.samples) {
             const out = s.write();
-            await options?.progressFunction?.(
-                s.name,
-                written,
-                this.samples.length
+            options.progressFunction?.(written / this.samples.length);
+            SpessaLog.info(
+                `%cWrote sample %c${written}. ${s.name}%c of %c${this.samples.length}.`,
+                ConsoleColors.info,
+                ConsoleColors.recognized,
+                ConsoleColors.info,
+                ConsoleColors.recognized
             );
             ptblOffsets.push(currentIndex);
-            currentIndex += out.length;
-            samples.push(out);
+            currentIndex += out.reduce((sum, cur) => sum + cur.length, 0);
+            samples.push(...out);
             written++;
         }
-        const wvpl = writeRIFFChunkParts("wvpl", samples, true);
-        SpessaSynthInfo("%cSucceeded!", consoleColors.recognized);
+        const wvpl = RIFFChunk.getParts("wvpl", samples, true);
+        SpessaLog.info("%cSucceeded!", ConsoleColors.recognized);
 
         // Write ptbl
         const ptblData = new IndexedByteArray(8 + 4 * ptblOffsets.length);
@@ -399,76 +402,40 @@ export class DownloadableSounds extends DLSVerifier {
         for (const offset of ptblOffsets) {
             writeDword(ptblData, offset);
         }
-        const ptbl = writeRIFFChunkRaw("ptbl", ptblData);
-        this.soundBankInfo.software = "SpessaSynth"; // ( ͡° ͜ʖ ͡°)
+        const ptbl = RIFFChunk.write("ptbl", ptblData);
+        this.soundBankInfo.software = options.software;
 
         // Write INFO
         const infos: Uint8Array[] = [];
-
-        const writeDLSInfo = (type: DLSInfoFourCC, data: string) => {
-            infos.push(writeRIFFChunkRaw(type, getStringBytes(data, true)));
+        const info = this.soundBankInfo;
+        const writeDLSInfo = (type: DLSInfoFourCC, data?: string) => {
+            if (!data) return;
+            infos.push(
+                ...RIFFChunk.getParts(type, [getStringBytes(data, true)])
+            );
         };
 
-        for (const [t, d] of Object.entries(this.soundBankInfo)) {
-            const type = t as SoundBankInfoFourCC;
-            const data = d as SoundBankInfoData[SoundBankInfoFourCC];
-            if (!data) {
-                continue;
-            }
-            switch (type) {
-                case "name":
-                    writeDLSInfo("INAM", data as string);
-                    break;
+        writeDLSInfo("INAM", info.name);
+        writeDLSInfo("ICMT", info.comment);
+        writeDLSInfo("ICOP", info.copyright);
+        writeDLSInfo("ICRD", toISODateString(info.creationDate));
+        writeDLSInfo("IENG", info.engineer);
+        writeDLSInfo("IPRD", info.product);
+        writeDLSInfo("ISFT", options.software);
+        writeDLSInfo("ISBJ", info.subject);
 
-                case "comment":
-                    writeDLSInfo("ICMT", data as string);
-                    break;
-
-                case "copyright":
-                    writeDLSInfo("ICOP", data as string);
-                    break;
-
-                case "creationDate":
-                    writeDLSInfo("ICRD", (data as Date).toISOString());
-                    break;
-
-                case "engineer":
-                    writeDLSInfo("IENG", data as string);
-                    break;
-
-                case "product":
-                    writeDLSInfo("IPRD", data as string);
-                    break;
-
-                case "romVersion":
-                case "version":
-                case "soundEngine":
-                case "romInfo":
-                    // Not writable
-                    break;
-
-                case "software":
-                    writeDLSInfo("ISFT", data as string);
-                    break;
-
-                case "subject":
-                    writeDLSInfo("ISBJ", data as string);
-            }
-        }
-        const info = writeRIFFChunkParts("INFO", infos, true);
-
-        SpessaSynthInfo("%cCombining everything...");
-        const out = writeRIFFChunkParts("RIFF", [
+        SpessaLog.info("%cCombining everything...");
+        const out = RIFFChunk.writeParts("RIFF", [
             getStringBytes("DLS "),
             colh,
-            lins,
+            ...lins,
             ptbl,
-            wvpl,
-            info
+            ...wvpl,
+            ...RIFFChunk.getParts("INFO", infos, true)
         ]);
 
-        SpessaSynthInfo("%cSaved successfully!", consoleColors.recognized);
-        SpessaSynthGroupEnd();
+        SpessaLog.info("%cSaved successfully!", ConsoleColors.recognized);
+        SpessaLog.groupEnd();
         return out.buffer;
     }
 
@@ -476,27 +443,24 @@ export class DownloadableSounds extends DLSVerifier {
      * Performs a full conversion from DownloadableSounds to BasicSoundBank.
      */
     public toSF(): BasicSoundBank {
-        SpessaSynthGroup("%cConverting DLS to SF2...", consoleColors.info);
-        const soundBank = new BasicSoundBank();
+        SpessaLog.group("%cConverting DLS to SF2...", ConsoleColors.info);
+        const soundBank = new BasicSoundBank("dls");
 
         soundBank.soundBankInfo.version.minor = 4;
         soundBank.soundBankInfo.version.major = 2;
         soundBank.soundBankInfo = { ...this.soundBankInfo };
-        soundBank.soundBankInfo.comment =
-            (soundBank.soundBankInfo.comment ?? "(No description)") +
-            "\nConverted from DLS to SF2 with SpessaSynth";
 
-        this.samples.forEach((sample) => {
+        for (const sample of this.samples) {
             sample.toSFSample(soundBank);
-        });
+        }
 
-        this.instruments.forEach((instrument) => {
+        for (const instrument of this.instruments) {
             instrument.toSFPreset(soundBank);
-        });
+        }
         soundBank.flush();
 
-        SpessaSynthInfo("%cConversion complete!", consoleColors.recognized);
-        SpessaSynthGroupEnd();
+        SpessaLog.info("%cConversion complete!", ConsoleColors.recognized);
+        SpessaLog.groupEnd();
         return soundBank;
     }
 }

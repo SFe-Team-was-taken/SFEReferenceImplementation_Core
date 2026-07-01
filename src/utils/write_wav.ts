@@ -1,9 +1,15 @@
 import { IndexedByteArray } from "./indexed_array";
 import { writeBinaryStringIndexed } from "./byte_functions/string";
-import { writeRIFFChunkParts, writeRIFFChunkRaw } from "./riff_chunk";
+import { RIFFChunk } from "./riff_chunk";
 import { writeLittleEndianIndexed } from "./byte_functions/little_endian";
-import { DEFAULT_WAV_WRITE_OPTIONS, type WaveWriteOptions } from "./exports";
+import { type WaveWriteOptions } from "./exports";
 import { fillWithDefaults } from "./fill_with_defaults";
+
+export const DEFAULT_WAV_WRITE_OPTIONS: WaveWriteOptions = {
+    normalizeAudio: true,
+    loop: undefined,
+    metadata: {}
+};
 
 /**
  * Writes an audio into a valid WAV file.
@@ -31,7 +37,7 @@ export function audioToWav(
     if (infoOn) {
         const encoder = new TextEncoder();
         const infoChunks = [
-            writeRIFFChunkRaw(
+            RIFFChunk.write(
                 "ICMT",
                 encoder.encode("Created with SpessaSynth"),
                 true
@@ -39,25 +45,25 @@ export function audioToWav(
         ];
         if (metadata.artist) {
             infoChunks.push(
-                writeRIFFChunkRaw("IART", encoder.encode(metadata.artist), true)
+                RIFFChunk.write("IART", encoder.encode(metadata.artist), true)
             );
         }
         if (metadata.album) {
             infoChunks.push(
-                writeRIFFChunkRaw("IPRD", encoder.encode(metadata.album), true)
+                RIFFChunk.write("IPRD", encoder.encode(metadata.album), true)
             );
         }
         if (metadata.genre) {
             infoChunks.push(
-                writeRIFFChunkRaw("IGNR", encoder.encode(metadata.genre), true)
+                RIFFChunk.write("IGNR", encoder.encode(metadata.genre), true)
             );
         }
         if (metadata.title) {
             infoChunks.push(
-                writeRIFFChunkRaw("INAM", encoder.encode(metadata.title), true)
+                RIFFChunk.write("INAM", encoder.encode(metadata.title), true)
             );
         }
-        infoChunk = writeRIFFChunkParts("INFO", infoChunks, true);
+        infoChunk = RIFFChunk.writeParts("INFO", infoChunks, true);
     }
 
     // Prepare CUE chunk
@@ -83,7 +89,7 @@ export function audioToWav(
         writeLittleEndianIndexed(cueEnd, 0, 4); // BlockStart, always 0
         writeLittleEndianIndexed(cueEnd, loopEndSamples, 4); // SampleOffset
 
-        cueChunk = writeRIFFChunkParts("cue ", [
+        cueChunk = RIFFChunk.writeParts("cue ", [
             new IndexedByteArray([2, 0, 0, 0]), // Cue points count
             cueStart,
             cueEnd
@@ -163,7 +169,7 @@ export function audioToWav(
     wavData.set(header, 0);
 
     // Interleave audio data (combine channels)
-    let multiplier = 32767;
+    let multiplier = 32_767;
     if (fullOptions.normalizeAudio) {
         // Find min and max values to prevent clipping when converting to 16 bits
         const numSamples = audioData[0].length;
@@ -180,16 +186,19 @@ export function audioToWav(
             }
         }
 
-        multiplier = maxAbsValue > 0 ? 32767 / maxAbsValue : 1;
+        multiplier = maxAbsValue > 0 ? 32_767 / maxAbsValue : 1;
     }
     for (let i = 0; i < length; i++) {
         // Interleave both channels
-        audioData.forEach((d) => {
-            const sample = Math.min(32767, Math.max(-32768, d[i] * multiplier));
+        for (const d of audioData) {
+            const sample = Math.min(
+                32_767,
+                Math.max(-32_768, d[i] * multiplier)
+            );
             // Convert to 16-bit
             wavData[offset++] = sample & 0xff;
             wavData[offset++] = (sample >> 8) & 0xff;
-        });
+        }
     }
 
     if (infoOn) {

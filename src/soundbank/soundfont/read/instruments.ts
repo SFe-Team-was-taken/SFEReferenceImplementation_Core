@@ -2,11 +2,12 @@ import { RIFFChunk } from "../../../utils/riff_chunk";
 import { readLittleEndianIndexed } from "../../../utils/byte_functions/little_endian";
 import { decodeUtf8 } from "../../../utils/byte_functions/string";
 import { BasicInstrument } from "../../basic_soundbank/basic_instrument";
-import { SoundFontInstrumentZone } from "./instrument_zones";
 import { IndexedByteArray } from "../../../utils/indexed_array";
 import type { BasicSample } from "../../basic_soundbank/basic_sample";
 import type { Modulator } from "../../basic_soundbank/modulator";
 import type { Generator } from "../../basic_soundbank/generator";
+import { BasicInstrumentZone } from "../../basic_soundbank/basic_instrument_zone";
+import { GeneratorTypes } from "../../basic_soundbank/generator_types";
 
 /**
  * Instrument.ts
@@ -45,13 +46,24 @@ export class SoundFontInstrument extends BasicInstrument {
         modulators: Modulator[],
         generators: Generator[],
         samples: BasicSample[]
-    ): SoundFontInstrumentZone {
-        const z = new SoundFontInstrumentZone(
-            this,
-            modulators,
-            generators,
-            samples
+    ) {
+        const sampleID = generators.find(
+            (g) => g.type === GeneratorTypes.sampleID
         );
+        let sample;
+        if (sampleID) {
+            sample = samples[sampleID.value];
+        } else {
+            throw new Error("No sample ID found in instrument zone.");
+        }
+        if (!sample) {
+            throw new Error(
+                `Invalid sample ID: ${sampleID.value}, available samples: ${samples.length}`
+            );
+        }
+        const z = new BasicInstrumentZone(this, sample);
+        z.addGenerators(...generators);
+        z.addModulators(...modulators);
         this.zones.push(z);
         return z;
     }

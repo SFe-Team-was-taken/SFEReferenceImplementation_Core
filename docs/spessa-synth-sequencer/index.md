@@ -23,7 +23,7 @@ An array of `BasicMIDI`s, the current song list.
 ### shuffledSongIndexes
 
 The shuffled song indexes.
-This is used when shuffleMode is enabled.
+This is used when shuffle mode is enabled.
 An array of numbers.
 
 ### synth
@@ -37,6 +37,13 @@ This is used by spessasynth_lib to pass them over to Web MIDI API.
 
 If true, MIDI events will be emitted.
 
+### retriggerPausedNotes
+
+If the notes that were playing when the sequencer was paused should be re-triggered.
+This will re-trigger the notes at the same velocity when unpausing the sequencer.
+
+Defaults to true.
+
 ### loopCount
 
 The loop count of the sequencer.
@@ -48,7 +55,6 @@ If zero, the loop is disabled.
 Indicates if the sequencer should skip to the first note on event.
 Defaults to true.
 
-
 ### onEventCall
 
 Called when the sequencer calls an event
@@ -59,12 +65,6 @@ with an object containing two properties:
 
 See [event types](event-types.md) for more info.
 
-
-### processTick
-
-Processes a single MIDI tick.
-You should call this every rendering quantum to process the sequencer events in real-time.
-
 ### duration
 
 The length of the current sequence in seconds.
@@ -72,17 +72,16 @@ The length of the current sequence in seconds.
 ### songIndex
 
 The current song index in the song list.
-If shuffleMode is enabled, this is the index of the shuffled song list.
+If shuffle mode is enabled, this is the index of the shuffled song list.
 
 This field can be set to trigger a change.
-
 
 ### shuffleMode
 
 Controls if the sequencer should shuffle the songs in the song list.
 If true, the sequencer will play the songs in a random order.
 
-This field can be set to trigger a change.
+Songs are shuffled on a `loadNewSongList` call.
 
 ### playbackRate
 
@@ -109,14 +108,21 @@ A boolean indicating if the sequencer has finished playing.
 ### preload
 
 A boolean indicating if the smart preloading should be enabled. It is highly recommended.
+This causes the sequencer to [preload](../midi/index.md#preloadsynth) all the songs when loading them (except for those with embedded sound banks).
+
+Defaults to true.
 
 ## Methods
+
+### processTick
+
+Processes a single MIDI tick.
+You should call this every rendering quantum to process the sequencer events in real-time.
 
 ### play
 
 Starts or resumes the playback of the sequencer.
 If the sequencer is paused, it will resume from the paused time.
-
 
 ### pause
 

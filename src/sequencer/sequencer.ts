@@ -3,15 +3,20 @@ import { processTick } from "./process_tick";
 import {
     assignMIDIPortInternal,
     loadNewSequenceInternal
-} from "./song_control";
-import { setTimeToInternal } from "./play";
-
-import { MIDI_CHANNEL_COUNT } from "../synthesizer/audio_engine/engine_components/synth_constants";
+} from "./load_new_sequence";
+import { setTimeToInternal } from "./set_time_to";
 import { BasicMIDI } from "../midi/basic_midi";
 import type { SpessaSynthProcessor } from "../synthesizer/processor";
-import { midiControllers, midiMessageTypes } from "../midi/enums";
+import {
+    type MIDIController,
+    MIDIControllers,
+    MIDIMessageTypes
+} from "../midi/enums";
 import type { SequencerEvent, SequencerEventData } from "./types";
-import { SpessaSynthWarn } from "../utils/loggin";
+import { arrayToHexString, ConsoleColors } from "../utils/other";
+import { SpessaLog } from "../utils/loggin";
+import type { SysExAcceptedArray } from "../midi/types";
+import { MIDIUtils } from "../midi/exports";
 
 export class SpessaSynthSequencer {
     /**
@@ -20,9 +25,9 @@ export class SpessaSynthSequencer {
     public songs: BasicMIDI[] = [];
     /**
      * The shuffled song indexes.
-     * This is used when shuffleMode is enabled.
+     * This is used when shuffle mode is enabled.
      */
-    public shuffledSongIndexes: number[] = [];
+    public readonly shuffledSongIndexes: number[] = [];
     /**
      * The synthesizer connected to the sequencer.
      */
@@ -32,10 +37,17 @@ export class SpessaSynthSequencer {
      * This is used by spessasynth_lib to pass them over to Web MIDI API.
      */
     public externalMIDIPlayback = false;
+
+    /**
+     * If the notes that were playing when the sequencer was paused should be re-triggered.
+     * Defaults to true.
+     */
+    public retriggerPausedNotes = true;
+
     /**
      * The loop count of the sequencer.
-     * If infinite, it will loop forever.
-     * If zero, the loop is disabled.
+     * If set to Infinity, it will loop forever.
+     * If set to zero, the loop is disabled.
      */
     public loopCount = 0;
     /**
@@ -53,7 +65,7 @@ export class SpessaSynthSequencer {
      * Indicates if the synthesizer should preload the voices for the newly loaded sequence.
      * Recommended.
      */
-    public preload = false;
+    public preload = true;
 
     /**
      * Called when the sequencer calls an event.
@@ -64,9 +76,7 @@ export class SpessaSynthSequencer {
      * Processes a single MIDI tick.
      * You should call this every rendering quantum to process the sequencer events in real-time.
      */
-    public processTick: typeof processTick = processTick.bind(
-        this
-    ) as typeof processTick;
+    public processTick: typeof processTick = processTick.bind(this);
     /**
      * The time of the first note in seconds.
      */
@@ -75,11 +85,13 @@ export class SpessaSynthSequencer {
      * How long a single MIDI tick currently lasts in seconds.
      */
     protected oneTickToSeconds = 0;
+
     /**
-     * The current event index for each track.
-     * This is used to track which event is currently being processed for each track.
+     * The current event index in the sorted event list.
+     * This is used to track which event is currently being processed.
+     * @protected
      */
-    protected eventIndexes: number[] = [];
+    protected index = 0;
     /**
      * The time that has already been played in the current song.
      */
@@ -95,13 +107,11 @@ export class SpessaSynthSequencer {
      */
     protected absoluteStartTime = 0;
     /**
-     * Currently playing notes (for pausing and resuming)
+     * Currently playing notes, for pressing them after pausing.
+     * Map per channel, key: velocity.
+     * If the `.get()` method returns nothing then this note is not playing.
      */
-    protected playingNotes: {
-        midiNote: number;
-        channel: number;
-        velocity: number;
-    }[] = [];
+    protected readonly playingNotes: Map<number, number>[] = [];
     /**
      * MIDI Port number for each of the MIDI tracks in the current sequence.
      */
@@ -128,7 +138,11 @@ export class SpessaSynthSequencer {
      */
     public constructor(spessasynthProcessor: SpessaSynthProcessor) {
         this.synth = spessasynthProcessor;
-        this.absoluteStartTime = this.synth.currentSynthTime;
+        this.absoluteStartTime = this.synth.currentTime;
+        // Use the actual count of the synth channels (as it may have grown)
+        this.playingNotes = this.synth.midiChannels.map(
+            () => new Map<number, number>()
+        );
     }
 
     protected _midiData?: BasicMIDI;
@@ -154,7 +168,7 @@ export class SpessaSynthSequencer {
     // noinspection JSUnusedGlobalSymbols
     /**
      * The current song index in the song list.
-     * If shuffleMode is enabled, this is the index of the shuffled song list.
+     * If shuffle mode is enabled, this is the index of the shuffled song list.
      */
     public get songIndex(): number {
         return this._songIndex;
@@ -163,7 +177,7 @@ export class SpessaSynthSequencer {
     // noinspection JSUnusedGlobalSymbols
     /**
      * The current song index in the song list.
-     * If shuffleMode is enabled, this is the index of the shuffled song list.
+     * If shuffle mode is enabled, this is the index of the shuffled song list.
      */
     public set songIndex(value: number) {
         this._songIndex = value;
@@ -177,6 +191,7 @@ export class SpessaSynthSequencer {
     /**
      * Controls if the sequencer should shuffle the songs in the song list.
      * If true, the sequencer will play the songs in a random order.
+     * Songs are shuffled on a `loadNewSongList` call.
      */
     public get shuffleMode(): boolean {
         return this._shuffleMode;
@@ -186,16 +201,10 @@ export class SpessaSynthSequencer {
     /**
      * Controls if the sequencer should shuffle the songs in the song list.
      * If true, the sequencer will play the songs in a random order.
+     * Songs are shuffled on a `loadNewSongList` call.
      */
     public set shuffleMode(on: boolean) {
         this._shuffleMode = on;
-        if (on) {
-            this.shuffleSongIndexes();
-            this._songIndex = 0;
-            this.loadCurrentSong();
-        } else {
-            this._songIndex = this.shuffledSongIndexes[this._songIndex];
-        }
     }
 
     /**
@@ -235,7 +244,7 @@ export class SpessaSynthSequencer {
         }
 
         return (
-            (this.synth.currentSynthTime - this.absoluteStartTime) *
+            (this.synth.currentTime - this.absoluteStartTime) *
             this._playbackRate
         );
     }
@@ -263,7 +272,7 @@ export class SpessaSynthSequencer {
             this.setTimeTicks(this._midiData.firstNoteOn - 1);
             return;
         } else {
-            this.playingNotes = [];
+            for (const ch of this.playingNotes) ch.clear();
             this.callEvent("timeChange", { newTime: time });
             this.setTimeTo(time);
             this.recalculateStartTime(time);
@@ -283,7 +292,7 @@ export class SpessaSynthSequencer {
      */
     public play() {
         if (!this._midiData) {
-            SpessaSynthWarn(
+            SpessaLog.warn(
                 "No songs loaded in the sequencer. Ignoring the play call."
             );
             return;
@@ -299,10 +308,18 @@ export class SpessaSynthSequencer {
             // Adjust the start time
             this.recalculateStartTime(this.pausedTime ?? 0);
         }
-        if (!this.externalMIDIPlayback) {
-            this.playingNotes.forEach((n) => {
-                this.synth.noteOn(n.channel, n.midiNote, n.velocity);
-            });
+        // Do not retrigger if external playback is enabled since we're not tracking notes there
+        if (this.retriggerPausedNotes && !this.externalMIDIPlayback) {
+            for (
+                let channel = 0;
+                channel < this.playingNotes.length;
+                channel++
+            ) {
+                const ch = this.playingNotes[channel];
+                for (const [midiNote, velocity] of ch) {
+                    this.sendMIDINoteOn(channel, midiNote, velocity);
+                }
+            }
         }
         this.pausedTime = undefined;
     }
@@ -324,12 +341,23 @@ export class SpessaSynthSequencer {
          * Parse the MIDIs (only the array buffers, MIDI is unchanged)
          */
         this.songs = midiBuffers;
-        if (this.songs.length < 1) {
+        if (this.songs.length === 0) {
             return;
         }
         this._songIndex = 0;
         this.shuffleSongIndexes();
         this.callEvent("songListChange", { newSongList: [...this.songs] });
+        // Preload all songs (without embedded sound banks)
+        if (this.preload) {
+            SpessaLog.group("%cPreloading all songs...", ConsoleColors.info);
+            for (const song of this.songs) {
+                if (song.embeddedSoundBank === undefined) {
+                    song.preloadSynth(this.synth);
+                }
+            }
+            SpessaLog.groupEnd();
+        }
+
         this.loadCurrentSong();
     }
 
@@ -371,41 +399,7 @@ export class SpessaSynthSequencer {
      */
     protected stop() {
         this.pausedTime = this.currentTime;
-        // Disable sustain
-        for (let i = 0; i < 16; i++) {
-            this.synth.controllerChange(i, midiControllers.sustainPedal, 0);
-        }
-        this.synth.stopAllChannels();
-        if (this.externalMIDIPlayback) {
-            for (const note of this.playingNotes) {
-                this.sendMIDIMessage([
-                    midiMessageTypes.noteOff | note.channel % 16,
-                    note.midiNote
-                ]);
-            }
-            for (let c = 0; c < MIDI_CHANNEL_COUNT; c++) {
-                this.sendMIDICC(c, midiControllers.allNotesOff, 0);
-            }
-        }
-    }
-
-    /**
-     * @returns the index of the first to the current played time
-     */
-    protected findFirstEventIndex() {
-        let index = 0;
-        let ticks = Infinity;
-        this._midiData!.tracks.forEach((track, i) => {
-            if (this.eventIndexes[i] >= track.events.length) {
-                return;
-            }
-            const event = track.events[this.eventIndexes[i]];
-            if (event.ticks < ticks) {
-                index = i;
-                ticks = event.ticks;
-            }
-        });
-        return index;
+        this.sendMIDIAllOff();
     }
 
     /**
@@ -414,30 +408,60 @@ export class SpessaSynthSequencer {
     protected addNewMIDIPort() {
         for (let i = 0; i < 16; i++) {
             this.synth.createMIDIChannel();
+            this.playingNotes.push(new Map<number, number>());
         }
     }
 
     protected sendMIDIMessage(message: number[]) {
         if (!this.externalMIDIPlayback) {
+            SpessaLog.warn(
+                `Attempting to send ${arrayToHexString(message)} to the synthesizer via sendMIDIMessage. This shouldn't happen!`
+            );
             return;
         }
-        this.callEvent("midiMessage", { message });
+        this.callEvent("midiMessage", {
+            message,
+            time: this.synth.currentTime
+        });
+    }
+
+    protected sendMIDIAllOff() {
+        // Disable sustain
+        for (let i = 0; i < 16; i++) {
+            this.sendMIDICC(i, MIDIControllers.sustainPedal, 0);
+        }
+        if (!this.externalMIDIPlayback) {
+            this.synth.stopAllChannels();
+            return;
+        }
+        // External
+        // Off all playing notes
+        for (let channel = 0; channel < this.playingNotes.length; channel++) {
+            const ch = this.playingNotes[channel];
+            for (const midiNote of ch.keys())
+                this.sendMIDINoteOff(channel, midiNote);
+        }
+
+        // Send off controllers
+        for (let c = 0; c < 16; c++) {
+            this.sendMIDICC(c, MIDIControllers.allNotesOff, 0);
+        }
     }
 
     protected sendMIDIReset() {
-        this.sendMIDIMessage([midiMessageTypes.reset]);
-        for (let ch = 0; ch < MIDI_CHANNEL_COUNT; ch++) {
-            this.sendMIDIMessage([
-                midiMessageTypes.controllerChange | ch,
-                midiControllers.allSoundOff,
-                0
-            ]);
-            this.sendMIDIMessage([
-                midiMessageTypes.controllerChange | ch,
-                midiControllers.resetAllControllers,
-                0
-            ]);
+        this.sendMIDIAllOff();
+        if (!this.externalMIDIPlayback) {
+            this.synth.reset();
+            return;
         }
+        this.sendMIDISysEx(
+            MIDIUtils.gs(
+                0x40, // System parameter - Address
+                0x00, // Global mode parameter -  Address
+                0x7f, // MODE SET - Address
+                [0x00] // 00 = GS Reset - Data
+            )
+        );
     }
 
     protected loadCurrentSong() {
@@ -450,49 +474,12 @@ export class SpessaSynthSequencer {
 
     protected shuffleSongIndexes() {
         const indexes = this.songs.map((_, i) => i);
-        this.shuffledSongIndexes = [];
+        this.shuffledSongIndexes.length = 0;
         while (indexes.length > 0) {
             const index = indexes[Math.floor(Math.random() * indexes.length)];
             this.shuffledSongIndexes.push(index);
             indexes.splice(indexes.indexOf(index), 1);
         }
-    }
-
-    protected sendMIDICC(channel: number, type: number, value: number) {
-        channel %= 16;
-        if (!this.externalMIDIPlayback) {
-            return;
-        }
-        this.sendMIDIMessage([
-            midiMessageTypes.controllerChange | channel,
-            type,
-            value
-        ]);
-    }
-
-    protected sendMIDIProgramChange(channel: number, program: number) {
-        channel %= 16;
-        if (!this.externalMIDIPlayback) {
-            return;
-        }
-        this.sendMIDIMessage([
-            midiMessageTypes.programChange | channel,
-            program
-        ]);
-    }
-
-    /**
-     * Sets the pitch of the given channel
-     * @param channel usually 0-15: the channel to change pitch
-     * @param MSB SECOND byte of the MIDI pitchWheel message
-     * @param LSB FIRST byte of the MIDI pitchWheel message
-     */
-    protected sendMIDIPitchWheel(channel: number, MSB: number, LSB: number) {
-        channel %= 16;
-        if (!this.externalMIDIPlayback) {
-            return;
-        }
-        this.sendMIDIMessage([midiMessageTypes.pitchWheel | channel, LSB, MSB]);
     }
 
     /**
@@ -503,7 +490,7 @@ export class SpessaSynthSequencer {
         if (!this._midiData) {
             return;
         }
-        this.playingNotes = [];
+        for (const ch of this.playingNotes) ch.clear();
         const seconds = this._midiData.midiTicksToSeconds(ticks);
         this.callEvent("timeChange", { newTime: seconds });
         const isNotFinished = this.setTimeTo(0, ticks);
@@ -519,6 +506,108 @@ export class SpessaSynthSequencer {
      */
     protected recalculateStartTime(time: number) {
         this.absoluteStartTime =
-            this.synth.currentSynthTime - time / this._playbackRate;
+            this.synth.currentTime - time / this._playbackRate;
+    }
+
+    /**
+     * Jumps to a MIDI tick without any further processing.
+     * @param targetTicks The MIDI tick to jump to.
+     * @protected
+     */
+    protected jumpToTick(targetTicks: number) {
+        if (!this._midiData) {
+            return;
+        }
+        this.sendMIDIAllOff();
+        const m = this._midiData;
+        const seconds = m.midiTicksToSeconds(targetTicks);
+        this.callEvent("timeChange", { newTime: seconds });
+
+        // Recalculate time and reset indexes
+        this.recalculateStartTime(seconds);
+        this.playedTime = seconds;
+        const idx = m.timeline.findIndex(
+            (e) => m.tracks[e.tr].events[e.ev].ticks >= targetTicks
+        );
+        // Not length - 1 since we want to mark the track as finished
+        this.index = idx === -1 ? m.timeline.length : idx;
+
+        // Correct tempo
+        // Some softy-looped files (example: th06_06.mid) have slightly mismatched tempos
+        const targetTempo = m.tempoChanges.find((t) => t.ticks <= targetTicks)!;
+        this.oneTickToSeconds = 60 / (targetTempo.tempo * m.timeDivision);
+    }
+
+    /*
+    SEND MIDI METHOD ABSTRACTIONS
+    These abstract the difference between spessasynth and external MIDI
+     */
+    protected sendMIDINoteOn(
+        channel: number,
+        midiNote: number,
+        velocity: number
+    ) {
+        if (!this.externalMIDIPlayback) {
+            this.synth.noteOn(channel, midiNote, velocity);
+            return;
+        }
+        channel %= 16;
+        this.sendMIDIMessage([
+            MIDIMessageTypes.noteOn | channel,
+            midiNote,
+            velocity
+        ]);
+    }
+
+    protected sendMIDINoteOff(channel: number, midiNote: number) {
+        if (!this.externalMIDIPlayback) {
+            this.synth.noteOff(channel, midiNote);
+            return;
+        }
+        channel %= 16;
+        this.sendMIDIMessage([
+            MIDIMessageTypes.noteOff | channel,
+            midiNote,
+            64 // Make sure to send velocity as well
+        ]);
+    }
+
+    protected sendMIDICC(channel: number, type: MIDIController, value: number) {
+        if (!this.externalMIDIPlayback) {
+            this.synth.controllerChange(channel, type, value);
+            return;
+        }
+        channel %= 16;
+        this.sendMIDIMessage([
+            MIDIMessageTypes.controllerChange | channel,
+            type,
+            value
+        ]);
+    }
+
+    protected sendMIDISysEx(syx: SysExAcceptedArray) {
+        if (!this.externalMIDIPlayback) {
+            this.synth.systemExclusive(syx);
+            return;
+        }
+        this.sendMIDIMessage([MIDIMessageTypes.systemExclusive, ...syx]);
+    }
+
+    /**
+     * Sets the pitch of the given channel
+     * @param channel usually 0-15: the channel to change pitch
+     * @param pitch the 14-bit pitch value
+     */
+    protected sendMIDIPitchWheel(channel: number, pitch: number) {
+        if (!this.externalMIDIPlayback) {
+            this.synth.pitchWheel(channel, pitch);
+            return;
+        }
+        channel %= 16;
+        this.sendMIDIMessage([
+            MIDIMessageTypes.pitchWheel | channel,
+            pitch & 0x7f,
+            pitch >> 7
+        ]);
     }
 }

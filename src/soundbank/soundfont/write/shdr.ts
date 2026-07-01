@@ -4,7 +4,7 @@ import {
     writeDword,
     writeWord
 } from "../../../utils/byte_functions/little_endian";
-import { writeRIFFChunkRaw } from "../../../utils/riff_chunk";
+import { RIFFChunk } from "../../../utils/riff_chunk";
 import { SF3_BIT_FLIT } from "../read/samples";
 import type { BasicSoundBank } from "../../basic_soundbank/basic_soundbank";
 
@@ -22,7 +22,7 @@ export function getSHDR(
     const xshdrData = new IndexedByteArray(shdrSize);
     const encoder = new TextEncoder();
     let maxSampleLink = 0;
-    bank.samples.forEach((sample, index) => {
+    for (const [index, sample] of bank.samples.entries()) {
         const encodedText = encoder.encode(sample.name);
         if (encodedText.length <= 20)
         {
@@ -69,7 +69,7 @@ export function getSHDR(
         const sampleLinkIndex = sample.linkedSample
             ? bank.samples.indexOf(sample.linkedSample)
             : 0;
-        writeWord(shdrData, Math.max(0, sampleLinkIndex) & 0xffff);
+        writeWord(shdrData, Math.max(0, sampleLinkIndex) & 0xff_ff);
         writeWord(xshdrData, Math.max(0, sampleLinkIndex) >> 16);
         maxSampleLink = Math.max(maxSampleLink, sampleLinkIndex);
         // Sample type: add byte if compressed
@@ -79,13 +79,13 @@ export function getSHDR(
         }
         writeWord(shdrData, type);
         xshdrData.currentIndex += 2;
-    });
+    }
 
     // Write EOS and zero everything else
     writeBinaryStringIndexed(shdrData, "EOS", sampleLength);
     writeBinaryStringIndexed(xshdrData, "EOS", sampleLength);
-    const shdr = writeRIFFChunkRaw("shdr", shdrData);
-    const xshdr = writeRIFFChunkRaw("shdr", xshdrData);
+    const shdr = RIFFChunk.write("shdr", shdrData);
+    const xshdr = RIFFChunk.write("shdr", xshdrData);
     return {
         pdta: shdr,
         xdta: xshdr

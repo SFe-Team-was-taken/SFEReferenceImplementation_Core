@@ -10,7 +10,7 @@ import { BAG_BYTE_SIZE, BasicZone } from "../../basic_soundbank/basic_zone";
 import type { ExtendedSF2Chunks } from "./types";
 import { INST_BYTE_SIZE } from "../../basic_soundbank/basic_instrument";
 import { PHDR_BYTE_SIZE } from "../../basic_soundbank/basic_preset";
-import { writeRIFFChunkRaw } from "../../../utils/riff_chunk";
+import { RIFFChunk } from "../../../utils/riff_chunk";
 import { writeBinaryStringIndexed } from "../../../utils/byte_functions/string";
 import { writeWord } from "../../../utils/byte_functions/little_endian";
 
@@ -56,12 +56,12 @@ export function writeSF2Elements(
         modulators.push(...mods);
     };
 
-    elements.forEach((el) => {
+    for (const el of elements) {
         zoneIndexes.push(zoneIndex);
         writeZone(el.globalZone);
-        el.zones.forEach(writeZone);
+        for (const zone of el.zones) writeZone(zone);
         zoneIndex += el.zones.length + 1; // Terminal record
-    });
+    }
     // Terminal records
     generators.push(new Generator(0, 0, false));
     modulators.push(new DecodedModulator(0, 0, 0, 0, 0));
@@ -72,26 +72,26 @@ export function writeSF2Elements(
     // Write the parameters
     const genSize = generators.length * GEN_BYTE_SIZE;
     const genData = new IndexedByteArray(genSize);
-    generators.forEach((g) => g.write(genData));
+    for (const g of generators) g.write(genData);
 
     const modSize = modulators.length * MOD_BYTE_SIZE;
     const modData = new IndexedByteArray(modSize);
-    modulators.forEach((m) => m.write(modData));
+    for (const m of modulators) m.write(modData);
 
     const bagSize = modulatorIndexes.length * BAG_BYTE_SIZE;
     const bagData: ExtendedSF2Chunks = {
         pdta: new IndexedByteArray(bagSize),
         xdta: new IndexedByteArray(bagSize)
     };
-    modulatorIndexes.forEach((modulatorIndex, i) => {
+    for (const [i, modulatorIndex] of modulatorIndexes.entries()) {
         const generatorIndex = generatorIndexes[i];
         // Bottom WORD: regular ibag
-        writeWord(bagData.pdta, generatorIndex & 0xffff);
-        writeWord(bagData.pdta, modulatorIndex & 0xffff);
+        writeWord(bagData.pdta, generatorIndex & 0xff_ff);
+        writeWord(bagData.pdta, modulatorIndex & 0xff_ff);
         // Top WORD: extended ibag
         writeWord(bagData.xdta, generatorIndex >> 16);
         writeWord(bagData.xdta, modulatorIndex >> 16);
-    });
+    }
 
     const hdrSize = (elements.length + 1) * hdrByteSize;
     const hdrData: ExtendedSF2Chunks = {
@@ -99,13 +99,13 @@ export function writeSF2Elements(
         xdta: new IndexedByteArray(hdrSize)
     };
 
-    elements.forEach((el, i) => el.write(hdrData, zoneIndexes[i]));
+    for (const [i, el] of elements.entries()) el.write(hdrData, zoneIndexes[i]);
 
     // Write terminal header records
     if (isPreset) {
         writeBinaryStringIndexed(hdrData.pdta, "EOP", 20);
         hdrData.pdta.currentIndex += 4; // Program, bank
-        writeWord(hdrData.pdta, zoneIndex & 0xffff);
+        writeWord(hdrData.pdta, zoneIndex & 0xff_ff);
         hdrData.pdta.currentIndex += 12; // Library, genre, morphology
 
         writeBinaryStringIndexed(hdrData.xdta, "", 20);
@@ -115,7 +115,7 @@ export function writeSF2Elements(
     } else {
         // Write EOI
         writeBinaryStringIndexed(hdrData.pdta, "EOI", 20);
-        writeWord(hdrData.pdta, zoneIndex & 0xffff);
+        writeWord(hdrData.pdta, zoneIndex & 0xff_ff);
 
         writeBinaryStringIndexed(hdrData.xdta, "", 20);
         writeWord(hdrData.xdta, zoneIndex >> 16);
@@ -123,30 +123,30 @@ export function writeSF2Elements(
 
     return {
         writeXdta:
-            Math.max(currentGenIndex, currentModIndex, zoneIndex) > 0xffff,
+            Math.max(currentGenIndex, currentModIndex, zoneIndex) > 0xff_ff,
         gen: {
-            pdta: writeRIFFChunkRaw(genHeader, genData),
+            pdta: RIFFChunk.write(genHeader, genData),
             // Same as pmod, this chunk includes only the terminal generator record to allow reuse of the pdta parser.
-            xdta: writeRIFFChunkRaw(
+            xdta: RIFFChunk.write(
                 modHeader,
                 new IndexedByteArray(GEN_BYTE_SIZE)
             )
         },
         mod: {
-            pdta: writeRIFFChunkRaw(modHeader, modData),
+            pdta: RIFFChunk.write(modHeader, modData),
             // This chunk exists solely to preserve parser compatibility and contains only the terminal modulator record.
-            xdta: writeRIFFChunkRaw(
+            xdta: RIFFChunk.write(
                 modHeader,
                 new IndexedByteArray(MOD_BYTE_SIZE)
             )
         },
         bag: {
-            pdta: writeRIFFChunkRaw(bagHeader, bagData.pdta),
-            xdta: writeRIFFChunkRaw(bagHeader, bagData.xdta)
+            pdta: RIFFChunk.write(bagHeader, bagData.pdta),
+            xdta: RIFFChunk.write(bagHeader, bagData.xdta)
         },
         hdr: {
-            pdta: writeRIFFChunkRaw(hdrHeader, hdrData.pdta),
-            xdta: writeRIFFChunkRaw(hdrHeader, hdrData.xdta)
+            pdta: RIFFChunk.write(hdrHeader, hdrData.pdta),
+            xdta: RIFFChunk.write(hdrHeader, hdrData.xdta)
         }
     };
 }

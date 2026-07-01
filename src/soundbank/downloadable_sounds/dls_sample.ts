@@ -1,9 +1,9 @@
 import { BasicSample } from "../basic_soundbank/basic_sample";
-import { SpessaSynthWarn } from "../../utils/loggin";
 import { readLittleEndianIndexed } from "../../utils/byte_functions/little_endian";
 import { IndexedByteArray } from "../../utils/indexed_array";
 import type { RIFFChunk } from "../../utils/riff_chunk";
-import { sampleTypes } from "../enums";
+import { SampleTypes } from "../enums";
+import { SpessaLog } from "../../utils/loggin";
 
 const W_FORMAT_TAG = {
     PCM: 0x01,
@@ -28,8 +28,9 @@ function readPCM(data: IndexedByteArray, bytesPerSample: number): Float32Array {
     if (bytesPerSample === 2) {
         // Special optimized case for s16 (most common)
         const s16 = new Int16Array(data.buffer);
-        for (let i = 0; i < s16.length; i++) {
-            sampleData[i] = s16[i] / 32768;
+        const s16l = s16.length;
+        for (let i = 0; i < s16l; i++) {
+            sampleData[i] = s16[i] / 32_768;
         }
     } else {
         for (let i = 0; i < sampleData.length; i++) {
@@ -84,7 +85,7 @@ function readALAW(
         const s16sample = input > 127 ? mantissa : -mantissa;
 
         // Convert to float
-        sampleData[i] = s16sample / 32678;
+        sampleData[i] = s16sample / 32_768;
     }
     return sampleData;
 }
@@ -125,7 +126,7 @@ export class DLSSample extends BasicSample {
             rate,
             pitch,
             pitchCorrection,
-            sampleTypes.monoSample,
+            SampleTypes.monoSample,
             loopStart,
             loopEnd
         );
@@ -142,22 +143,25 @@ export class DLSSample extends BasicSample {
         if (!this.audioData) {
             let sampleData;
             switch (this.wFormatTag) {
-                default:
-                    SpessaSynthWarn(
+                default: {
+                    SpessaLog.warn(
                         `Failed to decode sample. Unknown wFormatTag: ${this.wFormatTag}`
                     );
                     sampleData = new Float32Array(
                         this.rawData.length / this.bytesPerSample
                     );
                     break;
+                }
 
-                case W_FORMAT_TAG.PCM:
+                case W_FORMAT_TAG.PCM: {
                     sampleData = readPCM(this.rawData, this.bytesPerSample);
                     break;
+                }
 
-                case W_FORMAT_TAG.ALAW:
+                case W_FORMAT_TAG.ALAW: {
                     sampleData = readALAW(this.rawData, this.bytesPerSample);
                     break;
+                }
             }
             this.setAudioData(sampleData, this.sampleRate);
         }

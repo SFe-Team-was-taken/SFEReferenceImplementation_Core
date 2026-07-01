@@ -1,9 +1,9 @@
 import { IndexedByteArray } from "../../../utils/indexed_array";
 import { readLittleEndianIndexed, signedInt8 } from "../../../utils/byte_functions/little_endian";
-import { SpessaSynthInfo, SpessaSynthWarn } from "../../../utils/loggin";
+import { SpessaLog } from "../../../utils/loggin";
 import { readBinaryString, decodeUtf8 } from "../../../utils/byte_functions/string";
 import { BasicSample } from "../../basic_soundbank/basic_sample";
-import { consoleColors } from "../../../utils/other";
+import { ConsoleColors } from "../../../utils/other";
 import type { SampleType } from "../../enums";
 import type { RIFFChunk } from "../../../utils/riff_chunk";
 
@@ -112,8 +112,8 @@ export class SoundFontSample extends BasicSample {
                                 break;
 
                             case "pusHead":
-                                // Opus
-                                throw new Error(`Opus is currently unsupported. More information at https://github.com/SFe-Team-was-taken/SFeReferenceImplementation_Core/issues/1.`);
+                                // Opus - unsupported
+                                throw new Error(`Unsupported sample type: opus`);
                                 break;
 
                             case "vorbis":
@@ -168,24 +168,24 @@ export class SoundFontSample extends BasicSample {
             return;
         }
         const linked = samplesArray[this.linkedSampleIndex];
-        if (!linked) {
-            // Log as info because it's common and not really dangerous
-            SpessaSynthInfo(
-                `%cInvalid linked sample for ${this.name}. Setting to mono.`,
-                consoleColors.warn
-            );
-            this.unlinkSample();
-        } else {
+        if (linked) {
             // Check for corrupted files (like FluidR3_GM.sf2 that link EVERYTHING to a single sample)
             if (linked.linkedSample) {
-                SpessaSynthInfo(
+                SpessaLog.info(
                     `%cInvalid linked sample for ${this.name}: ${linked.name} is already linked to ${linked.linkedSample.name}`,
-                    consoleColors.warn
+                    ConsoleColors.warn
                 );
                 this.unlinkSample();
             } else {
                 this.setLinkedSample(linked, this.sampleType);
             }
+        } else {
+            // Log as info because it's common and not really dangerous
+            SpessaLog.info(
+                `%cInvalid linked sample for ${this.name}. Setting to mono.`,
+                ConsoleColors.warn
+            );
+            this.unlinkSample();
         }
     }
 
@@ -210,7 +210,7 @@ export class SoundFontSample extends BasicSample {
         // Start loading data if it is not loaded
         const byteLength = this.endByteOffset - this.startByteOffset;
         if (byteLength < 1) {
-            SpessaSynthWarn(
+            SpessaLog.warn(
                 `Invalid sample ${this.name}! Invalid length: ${byteLength}`
             );
             return new Float32Array(1);
@@ -222,8 +222,9 @@ export class SoundFontSample extends BasicSample {
         const convertedSigned16 = new Int16Array(this.s16leData.buffer);
 
         // Convert to float
-        for (let i = 0; i < convertedSigned16.length; i++) {
-            audioData[i] = convertedSigned16[i] / 32768;
+        const l = convertedSigned16.length;
+        for (let i = 0; i < l; i++) {
+            audioData[i] = convertedSigned16[i] / 32_768;
         }
 
         this.audioData = audioData;
@@ -286,14 +287,14 @@ export function readSamples(
 
     // Link samples
     if (linkSamples) {
-        samples.forEach((s) => s.getLinkedSample(samples));
+        for (const s of samples) s.getLinkedSample(samples);
     }
 
     if (uncontainerisedSamples) {
-        SpessaSynthWarn("This SFe bank contains uncontainerised samples. Future SFe sample features may not be usable.");
+        SpessaLog.warn("This SFe bank contains uncontainerised samples. Future SFe sample features may not be usable.");
     }
     if (mixedSamples) {
-        SpessaSynthWarn("This SFe bank contains mixed sample containerisation, which has been deprecated.");
+        SpessaLog.warn("This SFe bank contains mixed sample containerisation, which has been deprecated.");
     }
 
     return samples;

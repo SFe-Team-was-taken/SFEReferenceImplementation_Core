@@ -86,8 +86,8 @@ export function writeQword(dataArray: IndexedByteArray, qword: number) {
  */
 export function signedInt16(byte1: number, byte2: number): number {
     const val = (byte2 << 8) | byte1;
-    if (val > 32767) {
-        return val - 65536;
+    if (val > 32_767) {
+        return val - 65_536;
     }
     return val;
 }

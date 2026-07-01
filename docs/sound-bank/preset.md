@@ -24,11 +24,7 @@ The global zone for this preset, a `BasicZone`.
 
 The zones of this preset, an array of `BasicPresetZone`s.
 
-### isXGDrums
-
-A boolean indicating if this preset is an XG drum preset.
-
-### isAnyDrums
+### isDrum
 
 A boolean indicating if this preset is a drum preset.
 
@@ -54,7 +50,7 @@ Creates a new preset zone and returns it.
 preset.createZone(instrument);
 ```
 
- - instrument - the instrument to use in the zone.
+- instrument - the instrument to use in the zone.
 
 ### deleteZone
 
@@ -88,16 +84,15 @@ Checks if the bank and program numbers are the same for the given preset as this
 preset.matches(patch);
 ```
 
-- path - a MIDI patch to check.
+- patch - a MIDI patch to check.
 
 ### toMIDIString
 
 Returns a MIDI Patch formatted string.
 
-
 ### toString
 
-Returns a MIDI Patch formatted string and preset's name combined.
+An alias for [`MIDIPatchTools.toFullMIDIString`](../spessa-synth-processor/midi-patch.md#tofullmidistring).
 
 ### toFlattenedInstrument
 
@@ -107,12 +102,12 @@ This is a really complex function that attempts to work around the DLS limitatio
 It returns the `BasicInstrument` containing the flattened zones.
 In theory, it should exactly the same as this preset.
 
-### getSynthesisData
+### getVoiceParameters
 
-Returns the SF2 synthesis data for a given note and velocity.
+Returns the voice synthesis data for a given note and velocity.
 
 ```ts
-const synthesisData = preset.getSynthesisData(midiNote, velocity);
+const synthesisData = preset.getVoiceParameters(midiNote, velocity);
 ```
 
 - midiNote - the note to get data for. Ranges from 0 to 127.
@@ -120,7 +115,10 @@ const synthesisData = preset.getSynthesisData(midiNote, velocity);
 
 The returned value is an array of objects:
 
-- instrumentGenerators - an array of [`Generator`](generator.md)s.
-- presetGenerators - an array of [`Generator`](generator.md)s.
-- modulators - an array of [`Generator`](modulator.md)s.
+- generators - an `Int16Array` containing the generator values at their respective indexes (`generators[type] = value`).
+- modulators - an array of [`Modulator`](modulator.md)s.
 - sample - a [`BasicSample`](sample.md)
+
+!!! Note
+
+    The `E-mu` attenuation correction (`initialAttenuation` generator value being multiplied by `0.4`) is already performed.

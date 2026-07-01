@@ -1,19 +1,19 @@
 import type { DLSLoop } from "../types";
-import { type RIFFChunk, writeRIFFChunkRaw } from "../../utils/riff_chunk";
+import { RIFFChunk } from "../../utils/riff_chunk";
 import {
     readLittleEndianIndexed,
     signedInt16,
     writeDword,
     writeWord
 } from "../../utils/byte_functions/little_endian";
-import { type DLSLoopType, DLSLoopTypes, generatorTypes } from "../enums";
+import { GeneratorTypes } from "../enums";
 import { DLSVerifier } from "./dls_verifier";
 import { IndexedByteArray } from "../../utils/indexed_array";
 import type { BasicZone } from "../basic_soundbank/basic_zone";
 import { type BasicSample } from "../basic_soundbank/basic_sample";
-import type { SampleLoopingMode } from "../../synthesizer/types";
-import { SpessaSynthWarn } from "../../utils/loggin";
 import type { BasicInstrumentZone } from "../basic_soundbank/basic_instrument_zone";
+import { type DLSLoopType, DLSLoopTypes } from "./enums";
+import { SpessaLog } from "../../utils/loggin";
 
 const WSMP_SIZE = 20;
 const WSMP_LOOP_SIZE = 16;
@@ -67,7 +67,7 @@ export class WaveSample extends DLSVerifier {
         // CbSize
         const cbSize = readLittleEndianIndexed(chunk.data, 4);
         if (cbSize !== WSMP_SIZE) {
-            SpessaSynthWarn(
+            SpessaLog.warn(
                 `Wsmp cbSize mismatch: got ${cbSize}, expected ${WSMP_SIZE}.`
             );
         }
@@ -89,8 +89,8 @@ export class WaveSample extends DLSVerifier {
         } else {
             const cbSize = readLittleEndianIndexed(chunk.data, 4);
             if (cbSize !== WSMP_LOOP_SIZE) {
-                SpessaSynthWarn(
-                    `CbSize for loop in wsmp mismatch. Expected ${WSMP_SIZE}, got ${cbSize}.`
+                SpessaLog.warn(
+                    `CbSize for loop in wsmp mismatch. Expected ${WSMP_LOOP_SIZE}, got ${cbSize}.`
                 );
             }
             // Loop type: loop normally or loop until release (like soundfont)
@@ -126,7 +126,7 @@ export class WaveSample extends DLSVerifier {
     public static fromSFZone(zone: BasicInstrumentZone) {
         const waveSample = new WaveSample();
         waveSample.unityNote = zone.getGenerator(
-            generatorTypes.overridingRootKey,
+            GeneratorTypes.overridingRootKey,
             zone.sample.originalKey
         );
 
@@ -134,7 +134,7 @@ export class WaveSample extends DLSVerifier {
         // Since we implement scale tuning via a dls articulator and fluid doesn't support these,
         // Change the root key here
         if (
-            zone.getGenerator(generatorTypes.scaleTuning, 100) === 0 &&
+            zone.getGenerator(GeneratorTypes.scaleTuning, 100) === 0 &&
             zone.keyRange.max - zone.keyRange.min === 0
         ) {
             waveSample.unityNote = zone.keyRange.min;
@@ -149,38 +149,37 @@ export class WaveSample extends DLSVerifier {
         waveSample.fineTune = zone.fineTuning + zone.sample.pitchCorrection;
         // E-mu attenuation correction
         const attenuationCb =
-            zone.getGenerator(generatorTypes.initialAttenuation, 0) * 0.4;
+            zone.getGenerator(GeneratorTypes.initialAttenuation, 0) * 0.4;
         // Gain is stored as a 32-bit value, shift here
         waveSample.gain = -attenuationCb << 16;
-        const loopingMode = zone.getGenerator(
-            generatorTypes.sampleModes,
-            0
-        ) as SampleLoopingMode;
+        const loopingMode = zone.getGenerator(GeneratorTypes.sampleModes, 0);
         // Don't add loops unless needed
         if (loopingMode !== 0) {
             // Make sure to get offsets
             const loopStart =
                 zone.sample.loopStart +
-                zone.getGenerator(generatorTypes.startloopAddrsOffset, 0) +
+                zone.getGenerator(GeneratorTypes.startloopAddrsOffset, 0) +
                 zone.getGenerator(
-                    generatorTypes.startloopAddrsCoarseOffset,
+                    GeneratorTypes.startloopAddrsCoarseOffset,
                     0
                 ) *
-                    32768;
+                    32_768;
             const loopEnd =
                 zone.sample.loopEnd +
-                zone.getGenerator(generatorTypes.endloopAddrsOffset, 0) +
-                zone.getGenerator(generatorTypes.endloopAddrsCoarseOffset, 0) *
-                    32768;
+                zone.getGenerator(GeneratorTypes.endloopAddrsOffset, 0) +
+                zone.getGenerator(GeneratorTypes.endloopAddrsCoarseOffset, 0) *
+                    32_768;
             let dlsLoopType: DLSLoopType;
             switch (loopingMode) {
                 case 1:
-                default:
+                default: {
                     dlsLoopType = 0;
                     break;
+                }
 
-                case 3:
+                case 3: {
                     dlsLoopType = 1;
+                }
             }
             waveSample.loops.push({
                 loopType: dlsLoopType,
@@ -195,13 +194,13 @@ export class WaveSample extends DLSVerifier {
      * Converts the wsmp data into an SF zone.
      */
     public toSFZone(zone: BasicZone, sample: BasicSample) {
-        let loopingMode: SampleLoopingMode = 0;
+        let loopingMode = 0;
         const loop = this.loops[0];
         if (loop) {
             loopingMode = loop.loopType === DLSLoopTypes.loopAndRelease ? 3 : 1;
         }
         if (loopingMode !== 0) {
-            zone.setGenerator(generatorTypes.sampleModes, loopingMode);
+            zone.setGenerator(GeneratorTypes.sampleModes, loopingMode);
         }
 
         // Convert to signed and turn into attenuation (invert)
@@ -212,7 +211,7 @@ export class WaveSample extends DLSVerifier {
 
         if (wsmpAttenuationCorrected !== 0) {
             zone.setGenerator(
-                generatorTypes.initialAttenuation,
+                GeneratorTypes.initialAttenuation,
                 wsmpAttenuationCorrected
             );
         }
@@ -222,7 +221,7 @@ export class WaveSample extends DLSVerifier {
 
         // Correct the key if needed
         if (this.unityNote !== sample.originalKey) {
-            zone.setGenerator(generatorTypes.overridingRootKey, this.unityNote);
+            zone.setGenerator(GeneratorTypes.overridingRootKey, this.unityNote);
         }
         // Correct loop if needed
         if (loop) {
@@ -230,25 +229,25 @@ export class WaveSample extends DLSVerifier {
             const loopEnd = loop.loopStart + loop.loopLength;
             const diffEnd = loopEnd - sample.loopEnd;
             if (diffStart !== 0) {
-                const fine = diffStart % 32768;
-                zone.setGenerator(generatorTypes.startloopAddrsOffset, fine);
+                const fine = diffStart % 32_768;
+                zone.setGenerator(GeneratorTypes.startloopAddrsOffset, fine);
                 // Coarse generator uses 32768 samples per step
-                const coarse = Math.trunc(diffStart / 32768);
+                const coarse = Math.trunc(diffStart / 32_768);
                 if (coarse !== 0) {
                     zone.setGenerator(
-                        generatorTypes.startloopAddrsCoarseOffset,
+                        GeneratorTypes.startloopAddrsCoarseOffset,
                         coarse
                     );
                 }
             }
             if (diffEnd !== 0) {
-                const fine = diffEnd % 32768;
-                zone.setGenerator(generatorTypes.endloopAddrsOffset, fine);
+                const fine = diffEnd % 32_768;
+                zone.setGenerator(GeneratorTypes.endloopAddrsOffset, fine);
                 // Coarse generator uses 32768 samples per step
-                const coarse = Math.trunc(diffEnd / 32768);
+                const coarse = Math.trunc(diffEnd / 32_768);
                 if (coarse !== 0) {
                     zone.setGenerator(
-                        generatorTypes.endloopAddrsCoarseOffset,
+                        GeneratorTypes.endloopAddrsCoarseOffset,
                         coarse
                     );
                 }
@@ -268,12 +267,12 @@ export class WaveSample extends DLSVerifier {
         writeDword(wsmpData, this.fulOptions);
         // CSampleLoops
         writeDword(wsmpData, this.loops.length);
-        this.loops.forEach((loop) => {
+        for (const loop of this.loops) {
             writeDword(wsmpData, WSMP_LOOP_SIZE);
             writeDword(wsmpData, loop.loopType);
             writeDword(wsmpData, loop.loopStart);
             writeDword(wsmpData, loop.loopLength);
-        });
-        return writeRIFFChunkRaw("wsmp", wsmpData);
+        }
+        return RIFFChunk.write("wsmp", wsmpData);
     }
 }

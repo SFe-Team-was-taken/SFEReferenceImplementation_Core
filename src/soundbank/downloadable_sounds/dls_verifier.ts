@@ -1,10 +1,6 @@
-import {
-    type FourCC,
-    readRIFFChunk,
-    type RIFFChunk
-} from "../../utils/riff_chunk";
+import { type FourCC, RIFFChunk } from "../../utils/riff_chunk";
 import type { DLSChunkFourCC } from "../types";
-import { SpessaSynthGroupEnd } from "../../utils/loggin";
+import { SpessaLog } from "../../utils/loggin";
 import { readBinaryStringIndexed } from "../../utils/byte_functions/string";
 
 export abstract class DLSVerifier {
@@ -44,7 +40,7 @@ export abstract class DLSVerifier {
      * @throws error if the check doesn't pass
      */
     protected static parsingError(error: string) {
-        SpessaSynthGroupEnd();
+        SpessaLog.groupEnd();
         throw new Error(`DLS parse error: ${error} The file may be corrupted.`);
     }
 
@@ -57,7 +53,7 @@ export abstract class DLSVerifier {
         this.verifyText(readBinaryStringIndexed(chunk.data, 4), ...type);
         const chunks: RIFFChunk[] = [];
         while (chunk.data.length > chunk.data.currentIndex) {
-            chunks.push(readRIFFChunk(chunk.data));
+            chunks.push(RIFFChunk.read(chunk.data));
         }
         return chunks;
     }

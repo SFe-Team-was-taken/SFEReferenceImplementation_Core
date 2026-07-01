@@ -11,7 +11,7 @@ It also contains support for `.dls` files.
 ### Specifications
 
 - [SoundFont2 Specification](http://www.synthfont.com/sfspec24.pdf)
-- [SoundFont3 Description](https://github.com/FluidSynth/fluidsynth/wiki/SoundFont3Format)
+- [SoundFont3 Description](https://www.fluidsynth.org/wiki/SoundFont3Format)
 - [DLS Level 2 Specification](https://midi.org/dls)
 
 ## Initialization
@@ -36,9 +36,18 @@ It only needs to be awaited once, globally. Then all banks can be loaded synchro
 
     this property is _static_.
 
+### type
+
+The type of the sound bank that was loaded, either `sf2` or `dls`.
+
+!!! Note
+
+    SF3 or SFOGG files are parsed as `sf2` files, but with compressed samples.
+    The type is still `sf2`.
+
 ### soundBankInfo
 
-The metadata of this sound bank, described below
+The metadata of this sound bank as an object with properties described below.
 
 #### name
 
@@ -47,6 +56,7 @@ The sound bank's name.
 #### version
 
 The sound bank's version, stored as an object:
+
 - major - the major revision, number.
 - minor - the minor revision, number.
 
@@ -56,21 +66,21 @@ The creation date of this sound bank, a `Date` object.
 
 !!! Note
 
-    Note that if the date text is invalid, the current date will be used instead.
+    If the date text is invalid, the current date will be used instead.
     If you have a valid date in your sound bank, and it still fails to parse, please open an issue!
 
 #### soundEngine
 
-The sound engine name
+The sound engine name.
 
 !!! Note
 
     The other properties of soundBankInfo listed below are all *optional*!
-    
+    They may be undefined.
+
 #### engineer
 
-The engineer (creator) of the sound bank
-
+The engineer (creator) of the sound bank.
 
 #### product
 
@@ -90,11 +100,11 @@ The subject of the file. This only appears in DLS files.
 
 #### romInfo
 
-ROM Bank information.
+ROM Bank information. (SF2 only)
 
 #### romVersion
 
-A tag that only applies to SF2 and will usually be undefined.
+A tag that only applies to SF2 and will usually be undefined. (SF2 only)
 
 Stored like the `version` field.
 
@@ -138,7 +148,11 @@ Checks for XG drum sets and considers if this sound bank is XG-compatible.
 Merges multiple sound banks, adding (not replacing) presets on top of the previous ones, and returns a new soundBank.
 
 ```ts
-BasicSoundBank.mergeSoundBanks(soundbank1, soundbank2, soundbank3, /* more here... */);
+BasicSoundBank.mergeSoundBanks(
+    soundbank1,
+    soundbank2,
+    soundbank3 /* more here... */
+);
 ```
 
 - parameters - `BasicSoundBank` instances. The first is used as a base, and the rest are
@@ -152,18 +166,19 @@ The INFO data is taken from the first sound bank.
 
     This method is _static_.
 
-### getDummySoundBankFile
+### getSampleSoundBankFile
 
 Creates a simple sound bank with a single saw wave preset.
+
 ```ts
-const sfBinary = await BasicSoundBank.getDummySoundBankFile();
+const sfBinary = BasicSoundBank.getSampleSoundBankFile();
 ```
 
 The returned value is an `ArrayBuffer` - the binary representation of an .sf2 file.
 
 !!! Note
 
-    This method is _static_ and _asynchronous_
+    This method is _static_
 
 ### copyFrom
 
@@ -185,25 +200,51 @@ bank.addCompletePresets(presets);
 
 - presets - an array of `BasicPreset`s to add.
 
+### setSampleFormat
+
+Sets the sound bank's sample format _in place_.
+
+```ts
+await soundBank.setSampleFormat(options);
+```
+
+- `options` - An optional object (all properties are optional):
+    - `format` - The sample format to use:
+        - `pcm` - decompresses the sound bank and changes its version to `2.04` (SF2)
+        - `compressed` - compresses the sound bank with a given function and changes its version to `3.0` (SF3)
+    - `compressionFunction` - [See this for a detailed explanation](#compressionfunction). It can be undefined if the format is `pcm`.
+    - `progressFunction` - [See this for a detailed explanation](#progressfunction)
+
+!!! Important
+
+    This method is _asynchronous._
+
+!!! Warning
+
+    Note that decompressing (sample format `pcm`) usually results
+    in permanent sample quality loss!
+
+!!! Warning
+
+    This method is memory and CPU intensive with large sound banks.
+
 ### writeDLS
 
 Writes out a DLS Level 2 sound bank. The returned value is an `ArrayBuffer` - the binary of the file.
 
 ```ts
-const dls = await soundBank.writeDLS(options);
+const dls = soundBank.writeDLS(options);
 ```
 
-- `options` - An optional object:
+- `options` - An optional object (all properties are optional):
     - `progressFunction` - [See this for a detailed explanation](#progressfunction)
+    - `software` - A `string`, the `ISFT` field to set when writing. If unset, "SpessaSynth" is written.
+      This field indicates the last software that was used to edit this sound bank.
 
 !!! Danger
 
     This method is limited.
     [See this for more info.](../extra/dls-conversion-problem.md)
-
-!!! Important
-
-    This method is _asynchronous._
 
 !!! Warning
 
@@ -214,10 +255,10 @@ const dls = await soundBank.writeDLS(options);
 Write out an SF2 or SF3 file. The return value is an `ArrayBuffer` - the binary of the file.
 
 ```ts
-const binary = await soundBank.writeSF2(options);
+const binary = soundBank.writeSF2(options);
 ```
 
-- `options` - An optional object:
+- `options` - An optional object (all properties are optional):
     - `writeDefaultModulators` - a `boolean` indicating if
       the [DMOD chunk](https://github.com/spessasus/soundfont-proposals/blob/main/default_modulators.md) should be
       written.
@@ -226,22 +267,9 @@ const binary = await soundBank.writeSF2(options);
       the [xdta chunk](https://github.com/spessasus/soundfont-proposals/blob/main/extended_limits.md) should be written
       to allow virtually infinite parameters.
       Defaults to true.
-    - `compress` - A `boolean` indicating if any uncompressed samples should be compressed using the lossy Ogg Vorbis
-      codec. This significantly reduces file size.
-      Defaults to false.
-    - `decompress` - A `boolean` indicating if any compressed samples should be decompressed.
-      If false, the compressed samples are preserved which results in faster write time and no quality loss.
-      Defaults to false and not recommended.
     - `progressFunction` - [See this for a detailed explanation](#progressfunction)
-    - `compressionFunction` - [See this for a detailed explanation](#compressionfunction)
-
-!!! Important
-
-    This method is _asynchronous._
-
-!!! Note
-
-    If the sound bank was already compressed, it will not be decompressed to avoid losing quality.
+    - `software` - A `string`, the `ISFT` field to set when writing. If unset, "SpessaSynth" is written.
+      This field indicates the last software that was used to edit this sound bank.
 
 !!! Warning
 
@@ -283,20 +311,26 @@ Recursively clones a preset into this sound bank, as well as its instruments and
 
 Returns the copied preset, if a preset exists with that name, it is returned instead.
 
-
 ### flush
 
 Updates internal values. Call after updating the preset list.
 
-### trimSoundBank
+### trim
 
 Trims a sound bank to only contain samples in a given MIDI file.
 
 ```ts
-soundBank.trimSoundBank(midi);
+soundBank.trim(presetData);
 ```
 
-- `midi` - `BasicMIDI` - The MIDI file for which to trim the soundBank.
+- `presetData` - `PresetWithKeyCombinations` which is `Map<BasicPreset, Map<number, Set<number>>`.
+  Absent presets will be removed from the sound bank,
+  and samples that don't get activated in the remaining presets will be removed as well.
+
+!!! Note
+
+    This exact type is returned from [`getUsedProgramsAndKeys`](../midi/index.md#getusedprogramsandkeys)
+    in the `BasicMIDI` class. See that for more explanation
 
 ### removeUnusedElements
 
@@ -333,20 +367,19 @@ Deletes everything irreversibly.
 
 ### progressFunction
 
-This _optional_ function gets called after every sample has been written.
+This _optional_ function gets called for operations that take a long time (for example sample writing).
 It can be useful for displaying progress for long writing operations.
 
 It takes the following arguments:
 
-- name - `string` - sample's name.
-- writtenCount - `number` - the count of written samples so far.
-- totalSampleCount - `number` - the total number of samples.
+- progress - `number` - the estimated progress of writing.
 
 Please note that it's usually only effective when writing with compression, as raw writing is inlined for speed.
+If you are writing from a separate thread (e.g. a worker thread), then even inlined writing should show progress.
 
 ### compressionFunction
 
-This function must be provided if `compress` is enabled.
+This function must be provided if `compressed` format is chosen.
 
 The function takes the following arguments:
 
@@ -365,14 +398,15 @@ It must return an `Uint8Array` instance containing the compressed bitstream.
 Import your function:
 
 ```ts
-import {encodeVorbis} from './libvorbis/encode_vorbis.js'; // adjust the path if necessary
+// Example name, yours will be different
+import { encodeVorbis } from "./libvorbis/encode_vorbis.js";
 ```
 
-Then pass it to the write method:
+Then pass it to the compressing method:
 
 ```ts
-const file = await soundBank.writeSF2({
-    compress: true,
+await soundBank.setSampleFormat({
+    format: "compressed",
     compressionFunction: encodeVorbis
 });
 ```

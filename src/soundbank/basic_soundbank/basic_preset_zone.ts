@@ -3,7 +3,7 @@ import type { BasicPreset } from "./basic_preset";
 import type { BasicInstrument } from "./basic_instrument";
 import type { BasicSoundBank } from "./basic_soundbank";
 import { Generator } from "./generator";
-import { generatorTypes } from "./generator_types";
+import { GeneratorTypes } from "./generator_types";
 
 export class BasicPresetZone extends BasicZone {
     /**
@@ -55,13 +55,13 @@ export class BasicPresetZone extends BasicZone {
             );
         }
         const instrumentID = bank.instruments.indexOf(this.instrument);
-        if (instrumentID < 0) {
+        if (instrumentID === -1) {
             throw new Error(
                 `${this.instrument.name} does not exist in ${bank.soundBankInfo.name}! Cannot write instrument generator.`
             );
         }
         gens.push(
-            new Generator(generatorTypes.instrument, instrumentID, false)
+            new Generator(GeneratorTypes.instrument, instrumentID, false)
         );
         return gens;
     }

@@ -8,7 +8,7 @@ Larger bank support will need to wait until alternative sample addressing featur
 
 ### Sample Containerisation
 
-Currently, only Vorbis compression is supported. However, support for reading the headers of Opus, FLAC and WAV is currently included.
+Currently, only Vorbis compression is supported. However, support for reading the headers of FLAC and WAV is currently included.
 
 This will be implemented once audio libraries for these formats have been decided. This process is currently ongoing, so if you have an idea, please suggest it to us!
 

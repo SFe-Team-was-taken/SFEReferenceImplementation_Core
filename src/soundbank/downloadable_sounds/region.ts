@@ -2,12 +2,7 @@ import { DownloadableSoundsArticulation } from "./articulation";
 import type { GenericRange } from "../types";
 import { WaveSample } from "./wave_sample";
 import { WaveLink } from "./wave_link";
-import {
-    type RIFFChunk,
-    writeRIFFChunkParts,
-    writeRIFFChunkRaw
-} from "../../utils/riff_chunk";
-import { SpessaSynthWarn } from "../../utils/loggin";
+import { RIFFChunk } from "../../utils/riff_chunk";
 import {
     readLittleEndianIndexed,
     writeWord
@@ -19,9 +14,10 @@ import type { BasicInstrumentZone } from "../basic_soundbank/basic_instrument_zo
 import type { BasicSample } from "../basic_soundbank/basic_sample";
 import type { BasicInstrument } from "../basic_soundbank/basic_instrument";
 import {
-    generatorLimits,
-    generatorTypes
+    GeneratorLimits,
+    GeneratorTypes
 } from "../basic_soundbank/generator_types";
+import { SpessaLog } from "../../utils/loggin";
 
 export class DownloadableSoundsRegion extends DLSVerifier {
     public readonly articulation = new DownloadableSoundsArticulation();
@@ -98,7 +94,7 @@ export class DownloadableSoundsRegion extends DLSVerifier {
         const waveLinkChunk = regionChunks.find((c) => c.header === "wlnk");
         if (!waveLinkChunk) {
             // No wave link means no sample. What? Why is it even here then?
-            SpessaSynthWarn(
+            SpessaLog.warn(
                 "Invalid DLS region: missing 'wlnk' chunk! Discarding..."
             );
             return;
@@ -108,7 +104,7 @@ export class DownloadableSoundsRegion extends DLSVerifier {
         // Region header
         const regionHeader = regionChunks.find((c) => c.header === "rgnh");
         if (!regionHeader) {
-            SpessaSynthWarn(
+            SpessaLog.warn(
                 "Invalid DLS region: missing 'rgnh' chunk! Discarding..."
             );
             return;
@@ -174,7 +170,7 @@ export class DownloadableSoundsRegion extends DLSVerifier {
         region.velRange.max = zone.velRange.max;
 
         // KeyGroup (exclusive class)
-        region.keyGroup = zone.getGenerator(generatorTypes.exclusiveClass, 0);
+        region.keyGroup = zone.getGenerator(GeneratorTypes.exclusiveClass, 0);
         region.articulation.fromSFZone(zone);
         return region;
     }
@@ -185,9 +181,9 @@ export class DownloadableSoundsRegion extends DLSVerifier {
             this.writeHeader(),
             this.waveSample.write(),
             this.waveLink.write(),
-            this.articulation.write()
+            ...this.articulation.write()
         ];
-        return writeRIFFChunkParts("rgn2", chunks, true);
+        return RIFFChunk.getParts("rgn2", chunks, true);
     }
 
     public toSFZone(
@@ -213,21 +209,21 @@ export class DownloadableSoundsRegion extends DLSVerifier {
 
         // KeyGroup: essentially exclusive class
         if (this.keyGroup !== 0) {
-            zone.setGenerator(generatorTypes.exclusiveClass, this.keyGroup);
+            zone.setGenerator(GeneratorTypes.exclusiveClass, this.keyGroup);
         }
 
         this.waveSample.toSFZone(zone, sample);
         this.articulation.toSFZone(zone);
         // Remove generators with default values
         zone.generators = zone.generators.filter(
-            (g) => g.generatorValue !== generatorLimits[g.generatorType].def
+            (g) => g.value !== GeneratorLimits[g.type].def
         );
         return zone;
     }
 
     private writeHeader() {
         // Region header
-        const rgnhData = new IndexedByteArray(12);
+        const rgnhData = new IndexedByteArray(14);
         // KeyRange
         writeWord(rgnhData, Math.max(this.keyRange.min, 0));
         writeWord(rgnhData, this.keyRange.max);
@@ -239,6 +235,6 @@ export class DownloadableSoundsRegion extends DLSVerifier {
         writeWord(rgnhData, this.keyGroup);
         // UsLayer
         writeWord(rgnhData, this.usLayer);
-        return writeRIFFChunkRaw("rgnh", rgnhData);
+        return RIFFChunk.write("rgnh", rgnhData);
     }
 }

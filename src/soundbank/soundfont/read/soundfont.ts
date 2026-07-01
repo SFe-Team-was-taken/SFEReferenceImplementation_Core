@@ -6,10 +6,13 @@ import { applyPresetZones } from "./preset_zones";
 import { readPresets } from "./presets";
 import { readInstruments } from "./instruments";
 import { readModulators } from "./modulators";
-import { readRIFFChunk, RIFFChunk } from "../../../utils/riff_chunk";
-import { consoleColors } from "../../../utils/other";
-import { SpessaSynthGroup, SpessaSynthGroupEnd, SpessaSynthInfo } from "../../../utils/loggin";
-import { readBinaryString, readBinaryStringIndexed } from "../../../utils/byte_functions/string";
+import { RIFFChunk } from "../../../utils/riff_chunk";
+import { ConsoleColors } from "../../../utils/other";
+import { SpessaLog } from "../../../utils/loggin";
+import {
+    readBinaryString,
+    readBinaryStringIndexed
+} from "../../../utils/byte_functions/string";
 import { stbvorbis } from "../../../externals/stbvorbis_sync/stbvorbis_wrapper";
 import { BasicSoundBank } from "../../basic_soundbank/basic_soundbank";
 import { applyInstrumentZones } from "./instrument_zones";
@@ -17,7 +20,7 @@ import { readZoneIndexes } from "./zones";
 import type { SF2InfoFourCC, SFeFeatureFlag, FeatureFlagList } from "../../types";
 import type { Generator } from "../../basic_soundbank/generator";
 import type { Modulator } from "../../basic_soundbank/modulator";
-import { parseDateString } from "../../../utils/load_date";
+import { parseDateString } from "../../../utils/date";
 
 /**
  * Soundfont.ts
@@ -31,26 +34,26 @@ export class SoundFont2 extends BasicSoundBank {
      * Initializes a new SoundFont2 Parser and parses the given data array
      */
     public constructor(arrayBuffer: ArrayBuffer, warnDeprecated = true) {
-        super();
+        super("sf2");
         if (warnDeprecated) {
             throw new Error(
                 "Using the constructor directly is deprecated. Use SoundBankLoader.fromArrayBuffer() instead."
             );
         }
         const mainFileArray = new IndexedByteArray(arrayBuffer);
-        SpessaSynthGroup("%cParsing a SoundFont2 file...", consoleColors.info);
+        SpessaLog.group("%cParsing a SoundFont2 file...", ConsoleColors.info);
         if (!mainFileArray) {
-            SpessaSynthGroupEnd();
+            SpessaLog.groupEnd();
             this.parsingError("No data provided!");
         }
 
         // Read the main chunk
-        const firstChunk = readRIFFChunk(mainFileArray, false);
-        this.verifySFeHeader(firstChunk);
+        const firstChunk = RIFFChunk.read(mainFileArray, false);
+        this.verifySFeHeader(firstChunk, "riff");
 
         const type = readBinaryStringIndexed(mainFileArray, 4).toLowerCase();
         if (type !== "sfbk" && type !== "sfpk" && type !== "sfen") {
-            SpessaSynthGroupEnd();
+            SpessaLog.groupEnd();
             throw new SyntaxError(
                 `Invalid soundFont! Expected "sfbk", "sfpk" or "sfen" got "${type}"`
             );
@@ -64,13 +67,13 @@ export class SoundFont2 extends BasicSoundBank {
         // Const isSFe64 = type === "sfen";
 
         // INFO
-        const infoChunk = readRIFFChunk(mainFileArray);
+        const infoChunk = RIFFChunk.read(mainFileArray);
         this.verifyHeader(infoChunk, "list");
         const infoString = readBinaryStringIndexed(infoChunk.data, 4);
         if (infoString !== "INFO") {
-            SpessaSynthGroupEnd();
+            SpessaLog.groupEnd();
             throw new SyntaxError(
-                `Invalid soundFont! Expected "INFO" or "${infoString}"`
+                `Invalid soundFont! Expected "INFO" got "${infoString}"`
             );
         }
 
@@ -78,13 +81,13 @@ export class SoundFont2 extends BasicSoundBank {
         let isfeChunk: RIFFChunk | undefined = undefined;
 
         while (infoChunk.data.length > infoChunk.data.currentIndex) {
-            const chunk = readRIFFChunk(infoChunk.data);
+            const chunk = RIFFChunk.read(infoChunk.data);
             const text = readBinaryString(chunk.data, chunk.data.length);
             // Special cases
             const headerTyped = chunk.header as SF2InfoFourCC;
             switch (headerTyped) {
                 case "ifil":
-                case "iver":
+                case "iver": {
                     const major = readLittleEndianIndexed(chunk.data, 2);
                     const minor = readLittleEndianIndexed(chunk.data, 2);
                     if (headerTyped === "ifil") {
@@ -99,6 +102,7 @@ export class SoundFont2 extends BasicSoundBank {
                         };
                     }
                     break;
+                }
 
                 // Dmod: default modulators
                 case "DMOD": {
@@ -112,57 +116,66 @@ export class SoundFont2 extends BasicSoundBank {
                     // Possible xdta
                     const listType = readBinaryStringIndexed(chunk.data, 4);
                     if (listType === "xdta") {
-                        SpessaSynthInfo(
+                        SpessaLog.info(
                             "%cExtended SF2 found!",
-                            consoleColors.recognized
+                            ConsoleColors.recognized
                         );
                         xdtaChunk = chunk;
                     } else if (listType === "ISFe") {
-                        SpessaSynthInfo(
+                        SpessaLog.info(
                             "%cISFe-list chunk found!",
-                            consoleColors.recognized
+                            ConsoleColors.recognized
                         );
                         isfeChunk = chunk;
                     }
                     break;
                 }
 
-                case "ICRD":
+                case "ICRD": {
                     this.soundBankInfo.creationDate = parseDateString(
                         readBinaryStringIndexed(chunk.data, chunk.data.length)
                     );
                     break;
+                }
 
-                case "ISFT":
+                case "ISFT": {
                     this.soundBankInfo.software = text;
                     break;
+                }
 
-                case "IPRD":
+                case "IPRD": {
                     this.soundBankInfo.product = text;
                     break;
+                }
 
-                case "IENG":
+                case "IENG": {
                     this.soundBankInfo.engineer = text;
                     break;
+                }
 
-                case "ICOP":
+                case "ICOP": {
                     this.soundBankInfo.copyright = text;
                     break;
+                }
 
-                case "INAM":
+                case "INAM": {
                     this.soundBankInfo.name = text;
                     break;
+                }
 
-                case "ICMT":
+                case "ICMT": {
                     this.soundBankInfo.comment = text;
                     break;
+                }
 
-                case "irom":
+                case "irom": {
                     this.soundBankInfo.romInfo = text;
                     break;
+                }
 
-                case "isng":
+                case "isng": {
                     this.soundBankInfo.soundEngine = text;
+                }
             }
         }
         this.printInfo();
@@ -180,15 +193,15 @@ export class SoundFont2 extends BasicSoundBank {
         }> = {};
         if (xdtaChunk !== undefined) {
             // Read the hydra chunks
-            xChunks.phdr = readRIFFChunk(xdtaChunk.data);
-            xChunks.pbag = readRIFFChunk(xdtaChunk.data);
-            xChunks.pmod = readRIFFChunk(xdtaChunk.data);
-            xChunks.pgen = readRIFFChunk(xdtaChunk.data);
-            xChunks.inst = readRIFFChunk(xdtaChunk.data);
-            xChunks.ibag = readRIFFChunk(xdtaChunk.data);
-            xChunks.imod = readRIFFChunk(xdtaChunk.data);
-            xChunks.igen = readRIFFChunk(xdtaChunk.data);
-            xChunks.shdr = readRIFFChunk(xdtaChunk.data);
+            xChunks.phdr = RIFFChunk.read(xdtaChunk.data);
+            xChunks.pbag = RIFFChunk.read(xdtaChunk.data);
+            xChunks.pmod = RIFFChunk.read(xdtaChunk.data);
+            xChunks.pgen = RIFFChunk.read(xdtaChunk.data);
+            xChunks.inst = RIFFChunk.read(xdtaChunk.data);
+            xChunks.ibag = RIFFChunk.read(xdtaChunk.data);
+            xChunks.imod = RIFFChunk.read(xdtaChunk.data);
+            xChunks.igen = RIFFChunk.read(xdtaChunk.data);
+            xChunks.shdr = RIFFChunk.read(xdtaChunk.data);
         }
 
         // ISFe-list chunk
@@ -199,21 +212,21 @@ export class SoundFont2 extends BasicSoundBank {
             flag: RIFFChunk;
         }> = {};
         if (isfeChunk !== undefined) {
-            isfeChunks.sfty = readRIFFChunk(isfeChunk.data);
-            isfeChunks.sfvx = readRIFFChunk(isfeChunk.data);
-            isfeChunks.flag = readRIFFChunk(isfeChunk.data);
+            isfeChunks.sfty = RIFFChunk.read(isfeChunk.data);
+            isfeChunks.sfvx = RIFFChunk.read(isfeChunk.data);
+            isfeChunks.flag = RIFFChunk.read(isfeChunk.data);
             // Verify ISFe-list chunks
 
             const sftyStr = readBinaryString(isfeChunks.sfty?.data);
             if (sftyStr === "SFe standard") {
                 // Trailing sdta chunk is not supported
-                SpessaSynthInfo(
+                SpessaLog.info(
                 `%cSFe bank type: %cstandard`,
-                consoleColors.recognized,
-                consoleColors.info
+                ConsoleColors.recognized,
+                ConsoleColors.info
                 );
             } else {
-                SpessaSynthGroupEnd();
+                SpessaLog.groupEnd();
                 this.parsingError(
                     `Invalid SFe bank type: "${sftyStr}"`
                 );
@@ -221,9 +234,9 @@ export class SoundFont2 extends BasicSoundBank {
 
             if (isfeChunks.sfvx?.data.length !== 46) {
                 // Must be 46 bytes in length otherwise invalid
-                SpessaSynthInfo(
+                SpessaLog.info(
                     `Invalid SFe extended version chunk!`,
-                    consoleColors.warn
+                    ConsoleColors.warn
                 );
                 this.soundBankInfo.version = {
                     major: 4,
@@ -238,15 +251,15 @@ export class SoundFont2 extends BasicSoundBank {
 
                 if (sfeMajVer >= 5) {
                     // SFe 5 or later, structurally incompatible
-                    SpessaSynthGroupEnd();
+                    SpessaLog.groupEnd();
                     this.parsingError(
                         `Unsupported SFe version: "${sfeMajVer}.${sfeMinVer}"`
                     );
                 } else if (sfeMajVer == 4 && sfeMinVer > 0) {
                     // SFe 4.1 or later (4.x)
-                    SpessaSynthInfo(
+                    SpessaLog.info(
                         `SFe version not fully supported: "${sfeMajVer}.${sfeMinVer}"`,
-                        consoleColors.warn
+                        ConsoleColors.warn
                     );
                     this.soundBankInfo.version = {
                         major: 4,
@@ -254,40 +267,40 @@ export class SoundFont2 extends BasicSoundBank {
                     };
                 } else if (sfeMajVer == 4 && sfeMinVer == 0) {
                     // SFe 4.0 (currently the only supported version)
-                    SpessaSynthInfo(
+                    SpessaLog.info(
                     `%cSFe bank version: %c${sfeMajVer}.${sfeMinVer}`,
-                    consoleColors.recognized,
-                    consoleColors.info
+                    ConsoleColors.recognized,
+                    ConsoleColors.info
                     );
                     this.soundBankInfo.version = {
                         major: sfeMajVer,
                         minor: sfeMinVer
                     };
                     if (sfeSpecType == "Draft") {
-                        SpessaSynthInfo("%cThis bank is written to a SFe draft specification.", consoleColors.warn);
-                        SpessaSynthInfo(
+                        SpessaLog.info("%cThis bank is written to a SFe draft specification.", ConsoleColors.warn);
+                        SpessaLog.info(
                         `%cDraft revision: %${sfeDraft}`,
-                        consoleColors.recognized,
-                        consoleColors.info
+                        ConsoleColors.recognized,
+                        ConsoleColors.info
                         );
                     } else {
                         // Release Candidate is treated like Final
-                        SpessaSynthInfo(
+                        SpessaLog.info(
                         `%cSFe specification type: %c${sfeSpecType}`,
-                        consoleColors.recognized,
-                        consoleColors.info
+                        ConsoleColors.recognized,
+                        ConsoleColors.info
                         );
                     }
-                    SpessaSynthInfo(
+                    SpessaLog.info(
                     `%cSFe version string: %c${sfeVerStr}`,
-                    consoleColors.recognized,
-                    consoleColors.info
+                    ConsoleColors.recognized,
+                    ConsoleColors.info
                     );
                 } else {
                     // If it's below version 4, we treat this as an non-fatal error condition and ignore it
-                    SpessaSynthInfo(
+                    SpessaLog.info(
                         `%cInvalid SFe version: "${sfeMajVer}.${sfeMinVer}"`,
-                        consoleColors.warn
+                        ConsoleColors.warn
                     );
                     this.soundBankInfo.version = {
                         major: 4,
@@ -301,9 +314,9 @@ export class SoundFont2 extends BasicSoundBank {
             const supportedFlags: FeatureFlagList[] = [];
             if (isfeChunks.flag?.data.length % 6 !== 0) {
                 // Feature flags must be a multiple of 6 bytes in length
-                SpessaSynthInfo(
+                SpessaLog.info(
                     `Corrupted feature flag sub-chunk!`,
-                    consoleColors.warn
+                    ConsoleColors.warn
                 );
             } else {
                 while (isfeChunks.flag?.data.length > isfeChunks.flag?.data.currentIndex)
@@ -327,20 +340,20 @@ export class SoundFont2 extends BasicSoundBank {
 
 
         // SDTA
-        const sdtaChunk = readRIFFChunk(mainFileArray, false);
+        const sdtaChunk = RIFFChunk.read(mainFileArray, false);
         this.verifyHeader(sdtaChunk, "list");
         this.verifyText(readBinaryStringIndexed(mainFileArray, 4), "sdta");
 
         // Smpl
-        SpessaSynthInfo("%cVerifying smpl chunk...", consoleColors.warn);
-        const sampleDataChunk = readRIFFChunk(mainFileArray, false);
+        SpessaLog.info("%cVerifying smpl chunk...", ConsoleColors.warn);
+        const sampleDataChunk = RIFFChunk.read(mainFileArray, false);
         this.verifyHeader(sampleDataChunk, "smpl");
         let sampleData: IndexedByteArray | Float32Array;
         // SF2Pack: the entire data is compressed
         if (isSF2Pack) {
-            SpessaSynthInfo(
+            SpessaLog.info(
                 "%cSF2Pack detected, attempting to decode the smpl chunk...",
-                consoleColors.info
+                ConsoleColors.info
             );
             try {
                 sampleData = stbvorbis.decode(
@@ -349,16 +362,17 @@ export class SoundFont2 extends BasicSoundBank {
                         mainFileArray.currentIndex + sdtaChunk.size - 12
                     )
                 ).data[0];
-            } catch (e) {
-                SpessaSynthGroupEnd();
+            } catch (error) {
+                SpessaLog.groupEnd();
                 throw new Error(
-                    `SF2Pack Ogg Vorbis decode error: ${e as Error}`
+                    `SF2Pack Ogg Vorbis decode error: ${error as Error}`,
+                    { cause: error }
                 );
             }
-            SpessaSynthInfo(
+            SpessaLog.info(
                 `%cDecoded the smpl chunk! Length: %c${sampleData.length}`,
-                consoleColors.info,
-                consoleColors.value
+                ConsoleColors.info,
+                ConsoleColors.value
             );
         } else {
             sampleData = mainFileArray;
@@ -373,10 +387,10 @@ export class SoundFont2 extends BasicSoundBank {
             || (this.soundBankInfo.version.major == 2 && this.soundBankInfo.version.minor >= 4)
             || (this.soundBankInfo.version.major == 3 && this.soundBankInfo.version.minor >= 4))
             && (!isSF2Pack)) {
-                SpessaSynthInfo("%cThe sm24 chunk is supported. Verifying sm24 chunk...", consoleColors.warn);
+                SpessaLog.info("%cThe sm24 chunk is supported. Verifying sm24 chunk...", ConsoleColors.warn);
                 if (readBinaryStringIndexed(mainFileArray, 4) === "sm24") {
                     mainFileArray.currentIndex -= 4;
-                    const sm24DataChunk = readRIFFChunk(mainFileArray, false);
+                    const sm24DataChunk = RIFFChunk.read(mainFileArray, false);
                     console.log(sm24DataChunk.data);
                     mainFileArray.currentIndex += sm24DataChunk.size;
                 } else {
@@ -384,49 +398,49 @@ export class SoundFont2 extends BasicSoundBank {
                 }
         }
 
-        SpessaSynthInfo(
+        SpessaLog.info(
             `%cSkipping sample chunk, length: %c${sdtaChunk.size - 12}`,
-            consoleColors.info,
-            consoleColors.value
+            ConsoleColors.info,
+            ConsoleColors.value
         );
         console.log(mainFileArray.currentIndex);
 
 
         // PDTA
-        SpessaSynthInfo("%cLoading preset data chunk...", consoleColors.warn);
-        const presetChunk = readRIFFChunk(mainFileArray);
+        SpessaLog.info("%cLoading preset data chunk...", ConsoleColors.warn);
+        const presetChunk = RIFFChunk.read(mainFileArray);
         this.verifyHeader(presetChunk, "list");
         readBinaryStringIndexed(presetChunk.data, 4);
 
         // Read the hydra chunks
-        const phdrChunk = readRIFFChunk(presetChunk.data);
+        const phdrChunk = RIFFChunk.read(presetChunk.data);
         this.verifyHeader(phdrChunk, "phdr");
 
-        const pbagChunk = readRIFFChunk(presetChunk.data);
+        const pbagChunk = RIFFChunk.read(presetChunk.data);
         this.verifyHeader(pbagChunk, "pbag");
 
-        const pmodChunk = readRIFFChunk(presetChunk.data);
+        const pmodChunk = RIFFChunk.read(presetChunk.data);
         this.verifyHeader(pmodChunk, "pmod");
 
-        const pgenChunk = readRIFFChunk(presetChunk.data);
+        const pgenChunk = RIFFChunk.read(presetChunk.data);
         this.verifyHeader(pgenChunk, "pgen");
 
-        const instChunk = readRIFFChunk(presetChunk.data);
+        const instChunk = RIFFChunk.read(presetChunk.data);
         this.verifyHeader(instChunk, "inst");
 
-        const ibagChunk = readRIFFChunk(presetChunk.data);
+        const ibagChunk = RIFFChunk.read(presetChunk.data);
         this.verifyHeader(ibagChunk, "ibag");
 
-        const imodChunk = readRIFFChunk(presetChunk.data);
+        const imodChunk = RIFFChunk.read(presetChunk.data);
         this.verifyHeader(imodChunk, "imod");
 
-        const igenChunk = readRIFFChunk(presetChunk.data);
+        const igenChunk = RIFFChunk.read(presetChunk.data);
         this.verifyHeader(igenChunk, "igen");
 
-        const shdrChunk = readRIFFChunk(presetChunk.data);
+        const shdrChunk = RIFFChunk.read(presetChunk.data);
         this.verifyHeader(shdrChunk, "shdr");
 
-        SpessaSynthInfo("%cParsing samples...", consoleColors.info);
+        SpessaLog.info("%cParsing samples...", ConsoleColors.info);
 
         /**
          * Read all the samples
@@ -457,18 +471,12 @@ export class SoundFont2 extends BasicSoundBank {
             );
         }
         // Trim names
-        samples.forEach((s) => (s.name = s.name.trim()));
+        for (const s of samples) s.name = s.name.trim();
         this.samples.push(...samples);
 
-        /**
-         * Read all the instrument generators
-         */
-        const instrumentGenerators: Generator[] = readGenerators(igenChunk);
-
-        /**
-         * Read all the instrument modulators
-         */
-        const instrumentModulators: Modulator[] = readModulators(imodChunk);
+        // Read modulators and generators
+        const instrumentGenerators = readGenerators(igenChunk);
+        const instrumentModulators = readModulators(imodChunk);
 
         let instruments;
         if (xdtaChunk && xChunks.inst && instChunk.data.length === xChunks.inst?.data.length) {
@@ -477,7 +485,7 @@ export class SoundFont2 extends BasicSoundBank {
             instruments = readInstruments(instChunk, false, undefined);
         }
         // Trim names
-        instruments.forEach((i) => (i.name = i.name.trim()));
+        for (const i of instruments) i.name = i.name.trim();
         this.instruments.push(...instruments);
 
         const ibagIndexes = readZoneIndexes(ibagChunk);
@@ -503,14 +511,8 @@ export class SoundFont2 extends BasicSoundBank {
             instruments
         );
 
-        /**
-         * Read all the preset generators
-         */
+        // Read preset modulators and generators
         const presetGenerators: Generator[] = readGenerators(pgenChunk);
-
-        /**
-         * Read all the preset modulators
-         */
         const presetModulators: Modulator[] = readModulators(pmodChunk);
 
         let presets;
@@ -521,7 +523,7 @@ export class SoundFont2 extends BasicSoundBank {
         }
 
         // Trim names
-        presets.forEach((p) => p.name === p.name.trim());
+        for (const p of presets) p.name = p.name.trim();
         this.addPresets(...presets);
 
         const pbagIndexes = readZoneIndexes(pbagChunk);
@@ -545,25 +547,25 @@ export class SoundFont2 extends BasicSoundBank {
         );
 
         this.flush();
-        SpessaSynthInfo(
+        SpessaLog.info(
             `%cParsing finished! %c"${this.soundBankInfo.name}"%c has %c${this.presets.length}%c presets,
         %c${this.instruments.length}%c instruments and %c${this.samples.length}%c samples.`,
-            consoleColors.info,
-            consoleColors.recognized,
-            consoleColors.info,
-            consoleColors.recognized,
-            consoleColors.info,
-            consoleColors.recognized,
-            consoleColors.info,
-            consoleColors.recognized,
-            consoleColors.info
+            ConsoleColors.info,
+            ConsoleColors.recognized,
+            ConsoleColors.info,
+            ConsoleColors.recognized,
+            ConsoleColors.info,
+            ConsoleColors.recognized,
+            ConsoleColors.info,
+            ConsoleColors.recognized,
+            ConsoleColors.info
         );
-        SpessaSynthGroupEnd();
+        SpessaLog.groupEnd();
     }
 
     protected verifyHeader(chunk: RIFFChunk, expected: string) {
         if (chunk.header.toLowerCase() !== expected.toLowerCase()) {
-            SpessaSynthGroupEnd();
+            SpessaLog.groupEnd();
             this.parsingError(
                 `Invalid chunk header! Expected "${expected.toLowerCase()}" got "${chunk.header.toLowerCase()}"`
             );
@@ -572,7 +574,7 @@ export class SoundFont2 extends BasicSoundBank {
 
     protected verifySFeHeader(chunk: RIFFChunk) {
         if (chunk.header.toLowerCase() !== "riff" && chunk.header.toLowerCase() !== "rifs") {
-            SpessaSynthGroupEnd();
+            SpessaLog.groupEnd();
             this.parsingError(
                 `Invalid chunk header! Expected "riff" or "rifs" got "${chunk.header.toLowerCase()}"`
             );
@@ -581,7 +583,7 @@ export class SoundFont2 extends BasicSoundBank {
 
     protected verifyText(text: string, expected: string) {
         if (text.toLowerCase() !== expected.toLowerCase()) {
-            SpessaSynthGroupEnd();
+            SpessaLog.groupEnd();
             this.parsingError(
                 `Invalid FourCC: Expected "${expected.toLowerCase()}" got "${text.toLowerCase()}"\``
             );
@@ -631,16 +633,16 @@ export class SoundFont2 extends BasicSoundBank {
         if (!(supported.featureName === "Reserved" || supported.featureName === "End of Flags")) {
             if (((supported.flags & bankFlags.flags) === bankFlags.flags))
             {
-                SpessaSynthInfo(
+                SpessaLog.info(
                     `%cFeature branch %c${bankFlags.branch} leaf ${bankFlags.leaf} (${supported.featureName}) %cfully supported`,
-                    consoleColors.recognized,
-                    consoleColors.info,
-                    consoleColors.recognized                
+                    ConsoleColors.recognized,
+                    ConsoleColors.info,
+                    ConsoleColors.recognized                
                 );
             } else {
-                SpessaSynthInfo(
+                SpessaLog.info(
                     `%cFeature branch ${bankFlags.branch} leaf ${bankFlags.leaf} (${supported.featureName}) not fully supported`,
-                    consoleColors.warn
+                    ConsoleColors.warn
                 );
             }
         }

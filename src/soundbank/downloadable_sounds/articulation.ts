@@ -1,17 +1,5 @@
-import {
-    type DLSDestination,
-    dlsDestinations,
-    dlsSources,
-    type GeneratorType,
-    generatorTypes
-} from "../enums";
-import {
-    findRIFFListType,
-    readRIFFChunk,
-    type RIFFChunk,
-    writeRIFFChunkParts,
-    writeRIFFChunkRaw
-} from "../../utils/riff_chunk";
+import { type GeneratorType, GeneratorTypes } from "../enums";
+import { RIFFChunk } from "../../utils/riff_chunk";
 import {
     readLittleEndianIndexed,
     writeDword
@@ -19,19 +7,16 @@ import {
 import { IndexedByteArray } from "../../utils/indexed_array";
 import { DLSVerifier } from "./dls_verifier";
 import { BasicZone } from "../basic_soundbank/basic_zone";
-import { BasicInstrumentZone, Modulator } from "../exports";
-import { SpessaSynthWarn } from "../../utils/loggin";
-import {
-    DLS_1_NO_VIBRATO_MOD,
-    DLS_1_NO_VIBRATO_PRESSURE
-} from "./default_dls_modulators";
+import { BasicInstrumentZone } from "../exports";
 import { ConnectionBlock } from "./connection_block";
+import { type DLSDestination, DLSDestinations, DLSSources } from "./enums";
+import { SpessaLog } from "../../utils/loggin";
 
 type KeyToEnv =
-    | typeof generatorTypes.keyNumToModEnvDecay
-    | typeof generatorTypes.keyNumToModEnvHold
-    | typeof generatorTypes.keyNumToVolEnvDecay
-    | typeof generatorTypes.keyNumToVolEnvHold;
+    | typeof GeneratorTypes.keyNumToModEnvDecay
+    | typeof GeneratorTypes.keyNumToModEnvHold
+    | typeof GeneratorTypes.keyNumToVolEnvDecay
+    | typeof GeneratorTypes.keyNumToVolEnvHold;
 
 export class DownloadableSoundsArticulation extends DLSVerifier {
     public readonly connectionBlocks = new Array<ConnectionBlock>();
@@ -42,9 +27,9 @@ export class DownloadableSoundsArticulation extends DLSVerifier {
 
     public copyFrom(inputArticulation: DownloadableSoundsArticulation) {
         this.mode = inputArticulation.mode;
-        inputArticulation.connectionBlocks.forEach((block) => {
+        for (const block of inputArticulation.connectionBlocks) {
             this.connectionBlocks.push(ConnectionBlock.copyFrom(block));
-        });
+        }
     }
 
     public fromSFZone(z: BasicInstrumentZone) {
@@ -61,28 +46,34 @@ export class DownloadableSoundsArticulation extends DLSVerifier {
         // Real + (60 / 128) * scale
         // We do this here.
         for (const relativeGenerator of zone.generators) {
-            let absoluteCounterpart: GeneratorType | undefined = undefined;
-            switch (relativeGenerator.generatorType) {
-                default:
+            let absoluteCounterpart: GeneratorType | undefined;
+            switch (relativeGenerator.type) {
+                default: {
                     continue;
+                }
 
-                case generatorTypes.keyNumToVolEnvDecay:
-                    absoluteCounterpart = generatorTypes.decayVolEnv;
+                case GeneratorTypes.keyNumToVolEnvDecay: {
+                    absoluteCounterpart = GeneratorTypes.decayVolEnv;
                     break;
-                case generatorTypes.keyNumToVolEnvHold:
-                    absoluteCounterpart = generatorTypes.holdVolEnv;
+                }
+
+                case GeneratorTypes.keyNumToVolEnvHold: {
+                    absoluteCounterpart = GeneratorTypes.holdVolEnv;
                     break;
-                case generatorTypes.keyNumToModEnvDecay:
-                    absoluteCounterpart = generatorTypes.decayModEnv;
+                }
+                case GeneratorTypes.keyNumToModEnvDecay: {
+                    absoluteCounterpart = GeneratorTypes.decayModEnv;
                     break;
-                case generatorTypes.keyNumToModEnvHold:
-                    absoluteCounterpart = generatorTypes.holdModEnv;
+                }
+                case GeneratorTypes.keyNumToModEnvHold: {
+                    absoluteCounterpart = GeneratorTypes.holdModEnv;
+                }
             }
             const absoluteValue = zone.getGenerator(
                 absoluteCounterpart,
                 undefined
             );
-            const dlsRelative = relativeGenerator.generatorValue * -128;
+            const dlsRelative = relativeGenerator.value * -128;
 
             if (absoluteValue === undefined) {
                 // There's no absolute generator here.
@@ -90,11 +81,7 @@ export class DownloadableSoundsArticulation extends DLSVerifier {
             }
             const subtraction = (60 / 128) * dlsRelative;
             const newAbsolute = absoluteValue - subtraction;
-            zone.setGenerator(
-                relativeGenerator.generatorType,
-                dlsRelative,
-                false
-            );
+            zone.setGenerator(relativeGenerator.type, dlsRelative, false);
             zone.setGenerator(absoluteCounterpart, newAbsolute, false);
         }
         for (const generator of zone.generators) {
@@ -110,26 +97,24 @@ export class DownloadableSoundsArticulation extends DLSVerifier {
      * @param chunks
      */
     public read(chunks: RIFFChunk[]) {
-        const lart = findRIFFListType(chunks, "lart");
-        const lar2 = findRIFFListType(chunks, "lar2");
+        const lart = RIFFChunk.findListType(chunks, "lart");
+        const lar2 = RIFFChunk.findListType(chunks, "lar2");
 
         if (lart) {
             this.mode = "dls1";
             while (lart.data.currentIndex < lart.data.length) {
-                const art1 = readRIFFChunk(lart.data);
+                const chunk = RIFFChunk.read(lart.data);
                 // Note:
                 // DLS Specification says that lar2 should only have art2, but a DirectMusic Producer example
                 // "FarmGame.dls" has 'art1' in there.
                 // Hence, we allow art2 in lart and art1 in lar2.
-                DownloadableSoundsArticulation.verifyHeader(
-                    art1,
-                    "art1",
-                    "art2"
-                );
-                const artData = art1.data;
+                if (chunk.header !== "art1" && chunk.header !== "art2")
+                    // There may be a cdl chunk, testcase romania_main.dls
+                    continue;
+                const artData = chunk.data;
                 const cbSize = readLittleEndianIndexed(artData, 4);
                 if (cbSize !== 8) {
-                    SpessaSynthWarn(
+                    SpessaLog.warn(
                         `CbSize in articulation mismatch. Expected 8, got ${cbSize}`
                     );
                 }
@@ -141,20 +126,18 @@ export class DownloadableSoundsArticulation extends DLSVerifier {
         } else if (lar2) {
             this.mode = "dls2";
             while (lar2.data.currentIndex < lar2.data.length) {
-                const art2 = readRIFFChunk(lar2.data);
+                const chunk = RIFFChunk.read(lar2.data);
                 // Note:
                 // DLS Specification says that lar2 should only have art2, but a DirectMusic Producer example
                 // "FarmGame.dls" has 'art1' in there.
                 // Hence, we allow art2 in lart and art1 in lar2.
-                DownloadableSoundsArticulation.verifyHeader(
-                    art2,
-                    "art2",
-                    "art1"
-                );
-                const artData = art2.data;
+                if (chunk.header !== "art1" && chunk.header !== "art2")
+                    // There may be a cdl chunk, testcase romania_main.dls
+                    continue;
+                const artData = chunk.data;
                 const cbSize = readLittleEndianIndexed(artData, 4);
                 if (cbSize !== 8) {
-                    SpessaSynthWarn(
+                    SpessaLog.warn(
                         `CbSize in articulation mismatch. Expected 8, got ${cbSize}`
                     );
                 }
@@ -175,14 +158,13 @@ export class DownloadableSoundsArticulation extends DLSVerifier {
         writeDword(art2Data, this.connectionBlocks.length); // CConnectionBlocks
 
         const out = this.connectionBlocks.map((a) => a.write());
-        const art2 = writeRIFFChunkParts(
+        const art2 = RIFFChunk.getParts(
             this.mode === "dls2" ? "art2" : "art1",
             [art2Data, ...out]
         );
-        return writeRIFFChunkRaw(
+        return RIFFChunk.getParts(
             this.mode === "dls2" ? "lar2" : "lart",
             art2,
-            false,
             true
         );
     }
@@ -240,23 +222,23 @@ export class DownloadableSoundsArticulation extends DLSVerifier {
                 continue;
             }
             // A few special cases which are generators
-            if (control === dlsSources.none) {
+            if (control === DLSSources.none) {
                 // The keyNum source
                 // It usually requires a special treatment
-                if (source === dlsSources.keyNum) {
+                if (source === DLSSources.keyNum) {
                     // Scale tuning
-                    if (destination === dlsDestinations.pitch) {
+                    if (destination === DLSDestinations.pitch) {
                         zone.setGenerator(
-                            generatorTypes.scaleTuning,
+                            GeneratorTypes.scaleTuning,
                             amount / 128
                         );
                         continue;
                     }
                     if (
-                        destination === dlsDestinations.modEnvHold ||
-                        destination === dlsDestinations.modEnvDecay ||
-                        destination === dlsDestinations.volEnvHold ||
-                        destination == dlsDestinations.volEnvDecay
+                        destination === DLSDestinations.modEnvHold ||
+                        destination === DLSDestinations.modEnvDecay ||
+                        destination === DLSDestinations.volEnvHold ||
+                        destination === DLSDestinations.volEnvDecay
                     ) {
                         // Skip, will be applied later
                         continue;
@@ -273,62 +255,84 @@ export class DownloadableSoundsArticulation extends DLSVerifier {
             connection.toSFModulator(zone);
         }
 
-        // It seems that dls 1 does not have vibrato lfo, so we shall disable it
-        if (this.mode === "dls1") {
-            zone.addModulators(
-                // Modulation to vibrato
-                Modulator.copyFrom(DLS_1_NO_VIBRATO_MOD),
-                Modulator.copyFrom(DLS_1_NO_VIBRATO_PRESSURE)
-                // Pressure to vibrato
-            );
-        }
-
         // Perform correction for the key to something generators
         for (const connection of this.connectionBlocks) {
-            if (connection.source.source !== dlsSources.keyNum) {
+            if (connection.source.source !== DLSSources.keyNum) {
                 continue;
             }
             const generatorAmount = connection.shortScale;
             switch (connection.destination) {
                 default:
-                    continue;
 
-                case dlsDestinations.volEnvHold:
+                case DLSDestinations.volEnvHold: {
                     // Key to vol env hold
                     applyKeyToCorrection(
                         generatorAmount,
-                        generatorTypes.keyNumToVolEnvHold,
-                        generatorTypes.holdVolEnv,
-                        dlsDestinations.volEnvHold
+                        GeneratorTypes.keyNumToVolEnvHold,
+                        GeneratorTypes.holdVolEnv,
+                        DLSDestinations.volEnvHold
                     );
                     break;
+                }
 
-                case dlsDestinations.volEnvDecay:
+                case DLSDestinations.volEnvDecay: {
                     applyKeyToCorrection(
                         generatorAmount,
-                        generatorTypes.keyNumToVolEnvDecay,
-                        generatorTypes.decayVolEnv,
-                        dlsDestinations.volEnvDecay
+                        GeneratorTypes.keyNumToVolEnvDecay,
+                        GeneratorTypes.decayVolEnv,
+                        DLSDestinations.volEnvDecay
                     );
                     break;
+                }
 
-                case dlsDestinations.modEnvHold:
+                case DLSDestinations.modEnvHold: {
                     applyKeyToCorrection(
                         generatorAmount,
-                        generatorTypes.keyNumToModEnvHold,
-                        generatorTypes.holdModEnv,
-                        dlsDestinations.modEnvHold
+                        GeneratorTypes.keyNumToModEnvHold,
+                        GeneratorTypes.holdModEnv,
+                        DLSDestinations.modEnvHold
                     );
                     break;
+                }
 
-                case dlsDestinations.modEnvDecay:
+                case DLSDestinations.modEnvDecay: {
                     applyKeyToCorrection(
                         generatorAmount,
-                        generatorTypes.keyNumToModEnvDecay,
-                        generatorTypes.decayModEnv,
-                        dlsDestinations.modEnvDecay
+                        GeneratorTypes.keyNumToModEnvDecay,
+                        GeneratorTypes.decayModEnv,
+                        DLSDestinations.modEnvDecay
                     );
                     break;
+                }
+            }
+        }
+
+        // Perform DLS1 corrections
+        if (this.mode === "dls1") {
+            // DLS1 only has modulation LFO.
+            // Copy the parameters to vib LFO and convert all pitch values to vibrato LFO (including mod wheel modulator)
+            // This ensures that it stays in sync when using things like GS controller matrix
+
+            // Copy over delay and rate to vibrato LFO
+            zone.setGenerator(
+                GeneratorTypes.delayVibLFO,
+                zone.getGenerator(GeneratorTypes.delayModLFO, null)
+            );
+            zone.setGenerator(
+                GeneratorTypes.freqVibLFO,
+                zone.getGenerator(GeneratorTypes.freqModLFO, null)
+            );
+
+            // Convert pitch excursion to vibrato LFO
+            zone.setGenerator(
+                GeneratorTypes.vibLfoToPitch,
+                zone.getGenerator(GeneratorTypes.modLfoToPitch, null)
+            );
+            zone.setGenerator(GeneratorTypes.modLfoToPitch, null);
+
+            for (const mod of zone.modulators) {
+                if (mod.destination === GeneratorTypes.modLfoToPitch)
+                    mod.destination = GeneratorTypes.vibLfoToPitch;
             }
         }
     }

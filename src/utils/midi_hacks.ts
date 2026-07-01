@@ -1,4 +1,4 @@
-import type { SynthSystem } from "../synthesizer/types";
+import type { MIDISystem } from "../soundbank/types";
 
 export const XG_SFX_VOICE = 64;
 
@@ -11,27 +11,35 @@ export class BankSelectHacks {
     /**
      * GM2 has a different default bank number
      */
-    public static getDefaultBank(sys: SynthSystem) {
+    public static getDefaultBank(sys: MIDISystem) {
         return sys === "gm2" ? GM2_DEFAULT_BANK : 0;
     }
 
-    public static getDrumBank(sys: SynthSystem) {
+    public static getDrumBank(sys: MIDISystem) {
         switch (sys) {
-            default:
+            default: {
                 throw new Error(`${sys} doesn't have a bank MSB for drums.`);
+            }
 
-            case "gm2":
+            case "gm2": {
                 return 120;
-            case "xg":
+            }
+            case "xg": {
                 return 127;
+            }
         }
     }
 
     /**
-     * Checks if this bank number is XG drums
+     * Checks if this bank number is XG drums.
      */
-    public static isXGDrums(bankMSB: number) {
-        return bankMSB === 120 || bankMSB === 126 || bankMSB === 127;
+    public static isXGDrum(bankMSB: number) {
+        /*
+        Note: we omit 126 (XG SFX Drums) here, as they are unwanted most of the time.
+        If they are really wanted, the direct match will match them anyway.
+        Testcase: Timbres of heaven, selecting 0:127:30 picked XG SFX.
+         */
+        return bankMSB === 120 || bankMSB === 127;
     }
 
     /**
@@ -39,35 +47,35 @@ export class BankSelectHacks {
      */
     public static isValidXGMSB(bankMSB: number) {
         return (
-            this.isXGDrums(bankMSB) ||
+            this.isXGDrum(bankMSB) ||
             bankMSB === XG_SFX_VOICE ||
             bankMSB === GM2_DEFAULT_BANK
         );
     }
 
-    public static isSystemXG(system: SynthSystem) {
+    public static isSystemXG(system: MIDISystem) {
         return system === "gm2" || system === "xg";
     }
 
     public static addBankOffset(
         bankMSB: number,
         bankOffset: number,
-        xgDrums = true
+        isXG: boolean
     ) {
-        if (this.isXGDrums(bankMSB) && xgDrums) {
-            return bankMSB;
-        }
+        // Do not change XG drums (120, 126 or 127)
+        if (this.isXGDrum(bankMSB) && isXG) return bankMSB;
+
         return Math.min(bankMSB + bankOffset, 127);
     }
 
-    public static subtrackBankOffset(
+    public static subtractBankOffset(
         bankMSB: number,
         bankOffset: number,
-        xgDrums = true
+        isXG: boolean
     ) {
-        if (this.isXGDrums(bankMSB) && xgDrums) {
-            return bankMSB;
-        }
+        // Do not change XG drums (120, 126 or 127)
+        if (this.isXGDrum(bankMSB) && isXG) return bankMSB;
+
         return Math.max(0, bankMSB - bankOffset);
     }
 }

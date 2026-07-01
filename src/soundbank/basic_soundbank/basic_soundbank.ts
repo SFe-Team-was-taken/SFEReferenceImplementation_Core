@@ -1,21 +1,32 @@
-import { SpessaSynthGroup, SpessaSynthGroupCollapsed, SpessaSynthGroupEnd, SpessaSynthInfo } from "../../utils/loggin";
-import { consoleColors } from "../../utils/other";
-import { DEFAULT_SF2_WRITE_OPTIONS, writeSF2Internal } from "../soundfont/write/write";
+import { SpessaLog } from "../../utils/loggin";
+import { ConsoleColors } from "../../utils/other";
+import {
+    DEFAULT_SF2_WRITE_OPTIONS,
+    writeSF2Internal
+} from "../soundfont/write/write";
 import { Modulator, SPESSASYNTH_DEFAULT_MODULATORS } from "./modulator";
 import { BasicSample, EmptySample } from "./basic_sample";
-import { Generator } from "./generator";
 import { BasicInstrument } from "./basic_instrument";
 import { BasicPreset } from "./basic_preset";
 import { BankSelectHacks } from "../../utils/midi_hacks";
 import { stbvorbis } from "../../externals/stbvorbis_sync/stbvorbis_wrapper";
-import type { BasicMIDI } from "../../midi/basic_midi";
 
-import type { DLSWriteOptions, SF2VersionTag, SoundBankInfoData, SoundFont2WriteOptions } from "../types";
-import { generatorTypes } from "./generator_types";
-import type { SynthSystem } from "../../synthesizer/types";
-import { selectPreset } from "./preset_selector";
+import type {
+    DLSWriteOptions,
+    MIDISystem,
+    PresetsWithKeyCombinations,
+    SetSampleFormatOptions,
+    SF2VersionTag,
+    SoundBankInfoData,
+    SoundFont2WriteOptions
+} from "../types";
+import { GeneratorTypes } from "./generator_types";
 import { type MIDIPatch, MIDIPatchTools } from "./midi_patch";
-import { DEFAULT_DLS_OPTIONS, DownloadableSounds } from "../downloadable_sounds/downloadable_sounds";
+import {
+    DEFAULT_DLS_OPTIONS,
+    DownloadableSounds
+} from "../downloadable_sounds/downloadable_sounds";
+import { Generator } from "./generator";
 
 /**
  * Represents a single sound bank, be it DLS or SF2.
@@ -25,6 +36,15 @@ export class BasicSoundBank {
      * Indicates if the SF3/SF2Pack decoder is ready.
      */
     public static isSF3DecoderReady: Promise<boolean> = stbvorbis.isInitialized;
+
+    /**
+     * The type of the sound bank that was loaded.
+     * Either `sf2` for SoundFont2/SoundFont3 or `dls` for DownLoadable Sounds.
+     *
+     * Please note that SF3 or SFOGG files are parsed as `sf2` files, but with compressed samples.
+     * The type is still `sf2`.
+     */
+    public readonly type: "sf2" | "dls";
 
     /**
      * Sound bank's info.
@@ -67,6 +87,10 @@ export class BasicSoundBank {
      */
     public customDefaultModulators = false;
 
+    public constructor(type: "sf2" | "dls" = "sf2") {
+        this.type = type;
+    }
+
     private _isXGBank = false;
 
     /**
@@ -88,18 +112,18 @@ export class BasicSoundBank {
             throw new Error("No sound banks provided!");
         }
         const presets = mainSf.presets;
-        while (soundBanks.length) {
+        while (soundBanks.length > 0) {
             const newPresets = soundBanks?.shift()?.presets;
             if (newPresets) {
-                newPresets.forEach((newPreset) => {
+                for (const newPreset of newPresets) {
                     if (
-                        presets.find((existingPreset) =>
+                        !presets.some((existingPreset) =>
                             newPreset.matches(existingPreset)
-                        ) === undefined
+                        )
                     ) {
                         presets.push(newPreset);
                     }
-                });
+                }
             }
         }
 
@@ -112,7 +136,7 @@ export class BasicSoundBank {
     /**
      * Creates a simple sound bank with one saw wave preset.
      */
-    public static async getSampleSoundBankFile(): Promise<ArrayBuffer> {
+    public static getSampleSoundBankFile() {
         const font = new BasicSoundBank();
         const sampleData = new Float32Array(128);
         for (let i = 0; i < 128; i++) {
@@ -122,21 +146,21 @@ export class BasicSoundBank {
         sample.name = "Saw";
         sample.originalKey = 65;
         sample.pitchCorrection = 20;
-        sample.loopEnd = 127;
-        sample.setAudioData(sampleData, 44100);
+        sample.loopEnd = 128;
+        sample.setAudioData(sampleData, 44_100);
         font.addSamples(sample);
 
         const inst = new BasicInstrument();
         inst.name = "Saw Wave";
         inst.globalZone.addGenerators(
-            new Generator(generatorTypes.initialAttenuation, 375),
-            new Generator(generatorTypes.releaseVolEnv, -1000),
-            new Generator(generatorTypes.sampleModes, 1)
+            new Generator(GeneratorTypes.initialAttenuation, 375),
+            new Generator(GeneratorTypes.releaseVolEnv, -1000),
+            new Generator(GeneratorTypes.sampleModes, 1)
         );
 
         inst.createZone(sample);
         const zone2 = inst.createZone(sample);
-        zone2.addGenerators(new Generator(generatorTypes.fineTune, -9));
+        zone2.setGenerator(GeneratorTypes.fineTune, -9);
 
         font.addInstruments(inst);
 
@@ -146,9 +170,9 @@ export class BasicSoundBank {
 
         font.addPresets(preset);
 
-        font.soundBankInfo.name = "Dummy";
+        font.soundBankInfo.name = "SpessaSynth Sample Sound Bank";
         font.flush();
-        return await font.writeSF2();
+        return font.writeSF2();
     }
 
     /**
@@ -157,7 +181,7 @@ export class BasicSoundBank {
      */
     public static copyFrom(bank: BasicSoundBank) {
         const copied = new BasicSoundBank();
-        bank.presets.forEach((p) => copied.clonePreset(p));
+        for (const p of bank.presets) copied.clonePreset(p);
         copied.soundBankInfo = { ...bank.soundBankInfo };
         return copied;
     }
@@ -193,16 +217,87 @@ export class BasicSoundBank {
         this.addSamples(...sampleList);
     }
 
+    // noinspection JSUnusedGlobalSymbols
+    /**
+     * Sets the sound bank's sample format _in place_.
+     * @param options options for writing the file.
+     */
+    public async setSampleFormat(options: SetSampleFormatOptions) {
+        let writtenCount = 0;
+        const format = options.format;
+        const progressFunc = options.progressFunction;
+        // Linear async is faster here as the writing function usually uses a single WASM instance
+        for (const s of this.samples) {
+            switch (format) {
+                default:
+                case "pcm": {
+                    s.setAudioData(s.getAudioData(), s.sampleRate);
+                    break;
+                }
+
+                case "compressed": {
+                    const f = options.compressionFunction;
+                    if (!f)
+                        throw new Error(
+                            `No compression function supplied but '${format}' was requested.`
+                        );
+                    await s.compressSample(f);
+                }
+            }
+            writtenCount++;
+            progressFunc?.(writtenCount / this.samples.length);
+
+            SpessaLog.info(
+                `%cEncoded sample %c${writtenCount}. ${s.name}%c of %c${this.samples.length}%c. Compressed: %c${s.isCompressed}%c.`,
+                ConsoleColors.info,
+                ConsoleColors.recognized,
+                ConsoleColors.info,
+                ConsoleColors.recognized,
+                ConsoleColors.info,
+                s.isCompressed
+                    ? ConsoleColors.recognized
+                    : ConsoleColors.unrecognized,
+                ConsoleColors.info
+            );
+        }
+        // Change format
+        switch (format) {
+            default:
+            case "pcm": {
+                // Set version to 2.4
+                this.soundBankInfo.version.major = 2;
+                this.soundBankInfo.version.minor = 4;
+                break;
+            }
+
+            case "compressed": {
+                // Set version to 3
+                this.soundBankInfo.version.major = 3;
+                this.soundBankInfo.version.minor = 0;
+            }
+        }
+    }
+
     /**
      * Write the sound bank as a .dls file. This may not be 100% accurate.
-     * @param options - options for writing the file.
+     * Note that samples are always written in the s16le PCM encoding.
+     * @param options options for writing the file.
      * @returns the binary file.
      */
-    public async writeDLS(
-        options: Partial<DLSWriteOptions> = DEFAULT_DLS_OPTIONS
-    ): Promise<ArrayBuffer> {
-        const dls = DownloadableSounds.fromSF(this);
-        return dls.write(options);
+    public writeDLS(options: Partial<DLSWriteOptions> = DEFAULT_DLS_OPTIONS) {
+        const pFunc = options.progressFunction;
+        // First half (progress 0-0.5)
+        const dls = DownloadableSounds.fromSF(
+            this,
+            pFunc ? (p: number) => pFunc(p / 2) : undefined
+        );
+        // Second half (progress 0.5-1)
+        return dls.write({
+            ...options,
+            progressFunction: pFunc
+                ? (p: number) => pFunc(0.5 + p / 2)
+                : undefined
+        });
     }
 
     /**
@@ -210,9 +305,9 @@ export class BasicSoundBank {
      * @param writeOptions the options for writing.
      * @returns the binary file data.
      */
-    public async writeSF2(
+    public writeSF2(
         writeOptions: Partial<SoundFont2WriteOptions> = DEFAULT_SF2_WRITE_OPTIONS
-    ): Promise<ArrayBuffer> {
+    ) {
         return writeSF2Internal(this, writeOptions);
     }
 
@@ -322,18 +417,20 @@ export class BasicSoundBank {
      * Updates internal values.
      */
     public flush() {
-        this.presets.sort(MIDIPatchTools.sorter.bind(MIDIPatchTools));
+        this.presets.sort(MIDIPatchTools.compare.bind(MIDIPatchTools));
         this.parseInternal();
     }
 
     /**
-     * Trims a sound bank to only contain samples in a given MIDI file.
-     * @param mid - the MIDI file
+     * Trims the sound bank _in-place_ to only contain samples in a given MIDI file.
+     * @param presetData - A `Map`: `BasicPreset` -> `Set<"key-velocity">`.
+     * Absent presets will be removed from the sound bank,
+     * and samples that don't get activated in the remaining presets will be removed as well.
      */
-    public trimSoundBank(mid: BasicMIDI) {
+    public trim(presetData: PresetsWithKeyCombinations) {
         const trimInstrumentZones = (
             instrument: BasicInstrument,
-            combos: { key: number; velocity: number }[]
+            keyCombos: Map<number, Set<number>>
         ): number => {
             let trimmedIZones = 0;
             for (
@@ -345,32 +442,36 @@ export class BasicSoundBank {
                 const iKeyRange = iZone.keyRange;
                 const iVelRange = iZone.velRange;
                 let isIZoneUsed = false;
-                for (const iCombo of combos) {
+                for (const [key, velocities] of keyCombos) {
+                    // Check if the key range matches and if any of the velocities match as well
                     if (
-                        iCombo.key >= iKeyRange.min &&
-                        iCombo.key <= iKeyRange.max &&
-                        iCombo.velocity >= iVelRange.min &&
-                        iCombo.velocity <= iVelRange.max
+                        key >= iKeyRange.min &&
+                        key <= iKeyRange.max &&
+                        [...velocities].some(
+                            (velocity) =>
+                                velocity >= iVelRange.min &&
+                                velocity <= iVelRange.max
+                        )
                     ) {
                         isIZoneUsed = true;
                         break;
                     }
                 }
-                if (!isIZoneUsed && iZone.sample) {
-                    SpessaSynthInfo(
+                if (!isIZoneUsed) {
+                    SpessaLog.info(
                         `%c${iZone.sample.name}%c removed from %c${instrument.name}%c.`,
-                        consoleColors.recognized,
-                        consoleColors.info,
-                        consoleColors.recognized,
-                        consoleColors.info
+                        ConsoleColors.recognized,
+                        ConsoleColors.info,
+                        ConsoleColors.recognized,
+                        ConsoleColors.info
                     );
                     if (instrument.deleteZone(iZoneIndex)) {
                         trimmedIZones++;
                         iZoneIndex--;
-                        SpessaSynthInfo(
+                        SpessaLog.info(
                             `%c${iZone.sample.name}%c deleted`,
-                            consoleColors.recognized,
-                            consoleColors.info
+                            ConsoleColors.recognized,
+                            ConsoleColors.info
                         );
                     }
                     if (iZone.sample.useCount < 1) {
@@ -381,14 +482,12 @@ export class BasicSoundBank {
             return trimmedIZones;
         };
 
-        SpessaSynthGroup("%cTrimming sound bank...", consoleColors.info);
-        const usedProgramsAndKeys = mid.getUsedProgramsAndKeys(this);
-
-        SpessaSynthGroupCollapsed(
-            "%cModifying sound bank...",
-            consoleColors.info
+        SpessaLog.groupCollapsed(
+            "%cTrimming sound bank...",
+            ConsoleColors.info
         );
-        SpessaSynthInfo("Detected keys for midi:", usedProgramsAndKeys);
+
+        SpessaLog.info("Combinations to trim for:", presetData);
         // Modify the sound bank to only include programs and samples that are used
         for (
             let presetIndex = 0;
@@ -396,30 +495,23 @@ export class BasicSoundBank {
             presetIndex++
         ) {
             const p = this.presets[presetIndex];
-            const used = usedProgramsAndKeys.get(p);
-            if (used === undefined) {
-                SpessaSynthInfo(
+            const keyCombos = presetData.get(p);
+            if (keyCombos === undefined) {
+                SpessaLog.info(
                     `%cDeleting preset %c${p.name}%c and its zones`,
-                    consoleColors.info,
-                    consoleColors.recognized,
-                    consoleColors.info
+                    ConsoleColors.info,
+                    ConsoleColors.recognized,
+                    ConsoleColors.info
                 );
                 this.deletePreset(p);
                 presetIndex--;
             } else {
-                const combos = [...used].map((s) => {
-                    const split = s.split("-");
-                    return {
-                        key: parseInt(split[0]),
-                        velocity: parseInt(split[1])
-                    };
-                });
-                SpessaSynthGroupCollapsed(
+                SpessaLog.groupCollapsed(
                     `%cTrimming %c${p.name}`,
-                    consoleColors.info,
-                    consoleColors.recognized
+                    ConsoleColors.info,
+                    ConsoleColors.recognized
                 );
-                SpessaSynthInfo(`Keys for ${p.name}:`, combos);
+                SpessaLog.info(`Keys for ${p.name}:`, keyCombos);
                 let trimmedZones = 0;
                 // Clean the preset to only use zones that are used
                 for (
@@ -430,33 +522,37 @@ export class BasicSoundBank {
                     const zone = p.zones[zoneIndex];
                     const keyRange = zone.keyRange;
                     const velRange = zone.velRange;
+
                     // Check if any of the combos matches the zone
                     let isZoneUsed = false;
-                    for (const combo of combos) {
+                    for (const [key, velocities] of keyCombos) {
+                        // Check if the key range matches and if any of the velocities match as well
                         if (
-                            combo.key >= keyRange.min &&
-                            combo.key <= keyRange.max &&
-                            combo.velocity >= velRange.min &&
-                            combo.velocity <= velRange.max &&
-                            zone.instrument
+                            key >= keyRange.min &&
+                            key <= keyRange.max &&
+                            [...velocities].some(
+                                (velocity) =>
+                                    velocity >= velRange.min &&
+                                    velocity <= velRange.max
+                            )
                         ) {
                             // Zone is used, trim the instrument zones
                             isZoneUsed = true;
                             const trimmedIZones = trimInstrumentZones(
                                 zone.instrument,
-                                combos
+                                keyCombos
                             );
-                            SpessaSynthInfo(
-                                `%cTrimmed off %c${trimmedIZones}%c zones from %c${zone.instrument.name}`,
-                                consoleColors.info,
-                                consoleColors.recognized,
-                                consoleColors.info,
-                                consoleColors.recognized
+                            SpessaLog.info(
+                                `%cTrimmed off %c${trimmedIZones}%c instrument zones from %c${zone.instrument.name}`,
+                                ConsoleColors.info,
+                                ConsoleColors.recognized,
+                                ConsoleColors.info,
+                                ConsoleColors.recognized
                             );
                             break;
                         }
                     }
-                    if (!isZoneUsed && zone.instrument) {
+                    if (!isZoneUsed) {
                         trimmedZones++;
                         p.deleteZone(zoneIndex);
                         if (zone.instrument.useCount < 1) {
@@ -465,21 +561,20 @@ export class BasicSoundBank {
                         zoneIndex--;
                     }
                 }
-                SpessaSynthInfo(
-                    `%cTrimmed off %c${trimmedZones}%c zones from %c${p.name}`,
-                    consoleColors.info,
-                    consoleColors.recognized,
-                    consoleColors.info,
-                    consoleColors.recognized
+                SpessaLog.info(
+                    `%cTrimmed off %c${trimmedZones}%c preset zones from %c${p.name}`,
+                    ConsoleColors.info,
+                    ConsoleColors.recognized,
+                    ConsoleColors.info,
+                    ConsoleColors.recognized
                 );
-                SpessaSynthGroupEnd();
+                SpessaLog.groupEnd();
             }
         }
         this.removeUnusedElements();
 
-        SpessaSynthInfo("%cSound bank modified!", consoleColors.recognized);
-        SpessaSynthGroupEnd();
-        SpessaSynthGroupEnd();
+        SpessaLog.info("%cSound bank modified!", ConsoleColors.recognized);
+        SpessaLog.groupEnd();
     }
 
     public removeUnusedElements() {
@@ -518,8 +613,8 @@ export class BasicSoundBank {
     /**
      * Get the appropriate preset.
      */
-    public getPreset(patch: MIDIPatch, system: SynthSystem): BasicPreset {
-        return selectPreset(this.presets, patch, system);
+    public getPreset(patch: MIDIPatch, system: MIDISystem): BasicPreset {
+        return MIDIPatchTools.selectPatch(this.presets, patch, system);
     }
 
     public destroySoundBank() {
@@ -550,16 +645,16 @@ export class BasicSoundBank {
             31, 32, 33, 40, 41, 48, 56, 57, 58, 64, 65, 66, 126, 127
         ]);
         for (const preset of this.presets) {
-            if (BankSelectHacks.isXGDrums(preset.bankMSB)) {
+            if (BankSelectHacks.isXGDrum(preset.bankMSB)) {
                 this._isXGBank = true;
                 if (!allowedPrograms.has(preset.program)) {
                     // Not valid!
                     this._isXGBank = false;
-                    SpessaSynthInfo(
+                    SpessaLog.info(
                         `%cThis bank is not valid XG. Preset %c${preset.toString()}%c is not a valid XG drum. XG mode will use presets on bank 128.`,
-                        consoleColors.info,
-                        consoleColors.value,
-                        consoleColors.info
+                        ConsoleColors.info,
+                        ConsoleColors.value,
+                        ConsoleColors.info
                     );
                     break;
                 }
@@ -571,17 +666,17 @@ export class BasicSoundBank {
         for (const [info, value] of Object.entries(this.soundBankInfo)) {
             if (typeof value === "object" && "major" in value) {
                 const v = value as SF2VersionTag;
-                SpessaSynthInfo(
+                SpessaLog.info(
                     `%c${info}: %c"${v.major}.${v.minor}"`,
-                    consoleColors.info,
-                    consoleColors.recognized
+                    ConsoleColors.info,
+                    ConsoleColors.recognized
                 );
-            }
-            SpessaSynthInfo(
-                `%c${info}: %c${(value as string | Date).toLocaleString()}`,
-                consoleColors.info,
-                consoleColors.recognized
-            );
+            } else
+                SpessaLog.info(
+                    `%c${info}: %c${(value as string | Date).toLocaleString()}`,
+                    ConsoleColors.info,
+                    ConsoleColors.recognized
+                );
         }
     }
 }

@@ -1,8 +1,9 @@
-import * as fs from "node:fs";
+import * as fs from "node:fs/promises";
 import {
     audioToWav,
     BasicMIDI,
     SoundBankLoader,
+    SpessaLog,
     SpessaSynthProcessor,
     SpessaSynthSequencer
 } from "../src";
@@ -15,24 +16,32 @@ if (args.length !== 3) {
     );
     process.exit();
 }
-const sf = fs.readFileSync(args[0]);
-const mid = fs.readFileSync(args[1]);
+// Read MIDI and sound bank
+const sf = await fs.readFile(args[0]);
+const mid = await fs.readFile(args[1]);
+// Parse the MIDI and sound bank
 const midi = BasicMIDI.fromArrayBuffer(mid.buffer);
-const sampleRate = 44100;
-const sampleCount = Math.ceil(44100 * (midi.duration + 2));
+const soundBank = SoundBankLoader.fromArrayBuffer(sf.buffer);
+
+// Initialize the synthesizer
+const sampleRate = 48_000;
 const synth = new SpessaSynthProcessor(sampleRate, {
-    enableEventSystem: false,
-    enableEffects: false
+    eventsEnabled: false
 });
-synth.soundBankManager.addSoundBank(
-    SoundBankLoader.fromArrayBuffer(sf.buffer),
-    "main"
-);
+synth.soundBankManager.addSoundBank(soundBank, "main");
 await synth.processorInitialized;
+// Enable verbose information during render
+SpessaLog.setLogLevel(true, true, true);
+// Enable uncapped voice count
+synth.setSystemParameter("autoAllocateVoices", true);
+
+// Initialize the sequencer
 const seq = new SpessaSynthSequencer(synth);
 seq.loadNewSongList([midi]);
 seq.play();
 
+// Prepare the output buffers
+const sampleCount = Math.ceil(sampleRate * (midi.duration + 2));
 const outLeft = new Float32Array(sampleCount);
 const outRight = new Float32Array(sampleCount);
 const start = performance.now();
@@ -41,13 +50,12 @@ let filledSamples = 0;
 const BUFFER_SIZE = 128;
 let i = 0;
 const durationRounded = Math.floor(seq.midiData!.duration * 100) / 100;
-const outputArray = [outLeft, outRight];
 while (filledSamples < sampleCount) {
     // Process sequencer
     seq.processTick();
     // Render
     const bufferSize = Math.min(BUFFER_SIZE, sampleCount - filledSamples);
-    synth.renderAudio(outputArray, [], [], filledSamples, bufferSize);
+    synth.process(outLeft, outRight, filledSamples, bufferSize);
     filledSamples += bufferSize;
     i++;
     // Log progress
@@ -67,6 +75,5 @@ console.info(
     `ms (${Math.floor(((midi.duration * 1000) / rendered) * 100) / 100}x)`
 );
 const wave = audioToWav([outLeft, outRight], sampleRate);
-fs.writeFile(args[2], new Uint8Array(wave), () => {
-    console.info(`File written to ${args[2]}`);
-});
+await fs.writeFile(args[2], new Uint8Array(wave));
+console.info(`File written to ${args[2]}`);

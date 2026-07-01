@@ -19,6 +19,9 @@ export function readBinaryString(
             return string;
         }
 
+        // Note: do not replace with fromCodePoint
+        // Corrupted files that are readable right now will break!
+        // Testcase: 01 - House.rmi
         string += String.fromCharCode(byte);
     }
     return string;
@@ -99,12 +102,12 @@ export function writeBinaryStringIndexed(
     string: string,
     padLength = 0
 ): IndexedByteArray {
-    if (padLength > 0) {
-        if (string.length > padLength) {
-            string = string.slice(0, padLength);
-        }
+    if (padLength > 0 && string.length > padLength) {
+        string = string.slice(0, padLength);
     }
     for (let i = 0; i < string.length; i++) {
+        // CharCode at returns a byte which is the max
+
         outArray[outArray.currentIndex++] = string.charCodeAt(i);
     }
 

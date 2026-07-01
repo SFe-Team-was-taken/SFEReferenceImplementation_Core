@@ -1,12 +1,6 @@
 import { DLSVerifier } from "./dls_verifier";
 import { WaveSample } from "./wave_sample";
-import {
-    findRIFFListType,
-    readRIFFChunk,
-    RIFFChunk,
-    writeRIFFChunkParts,
-    writeRIFFChunkRaw
-} from "../../utils/riff_chunk";
+import { RIFFChunk } from "../../utils/riff_chunk";
 import {
     readLittleEndianIndexed,
     writeDword,
@@ -17,8 +11,8 @@ import {
     readBinaryStringIndexed
 } from "../../utils/byte_functions/string";
 import { IndexedByteArray } from "../../utils/indexed_array";
-import { SpessaSynthInfo } from "../../utils/loggin";
-import { consoleColors } from "../../utils/other";
+import { SpessaLog } from "../../utils/loggin";
+import { ConsoleColors } from "../../utils/other";
 import { DLSSample } from "./dls_sample";
 import type { BasicSoundBank } from "../basic_soundbank/basic_soundbank";
 import type { BasicSample } from "../basic_soundbank/basic_sample";
@@ -80,14 +74,14 @@ export class DownloadableSoundsSample extends DLSVerifier {
         );
 
         // Read sample name
-        const waveInfo = findRIFFListType(chunks, "INFO");
+        const waveInfo = RIFFChunk.findListType(chunks, "INFO");
         if (waveInfo) {
-            let infoChunk = readRIFFChunk(waveInfo.data);
+            let infoChunk = RIFFChunk.read(waveInfo.data);
             while (
                 infoChunk.header !== "INAM" &&
                 waveInfo.data.currentIndex < waveInfo.data.length
             ) {
-                infoChunk = readRIFFChunk(waveInfo.data);
+                infoChunk = RIFFChunk.read(waveInfo.data);
             }
             if (infoChunk.header === "INAM") {
                 sample.name = readBinaryStringIndexed(
@@ -158,17 +152,17 @@ export class DownloadableSoundsSample extends DLSVerifier {
     public write() {
         const fmt = this.writeFmt();
         const wsmp = this.waveSample.write();
-        const data = writeRIFFChunkRaw("data", this.dataChunk.data);
+        const data = RIFFChunk.getParts("data", [this.dataChunk.data]);
 
-        const inam = writeRIFFChunkRaw("INAM", getStringBytes(this.name, true));
-        const info = writeRIFFChunkRaw("INFO", inam, false, true);
-        SpessaSynthInfo(
+        const inam = RIFFChunk.write("INAM", getStringBytes(this.name, true));
+        const info = RIFFChunk.write("INFO", inam, false, true);
+        SpessaLog.info(
             `%cSaved %c${this.name}%c successfully!`,
-            consoleColors.recognized,
-            consoleColors.value,
-            consoleColors.recognized
+            ConsoleColors.recognized,
+            ConsoleColors.value,
+            ConsoleColors.recognized
         );
-        return writeRIFFChunkParts("wave", [fmt, wsmp, data, info], true);
+        return RIFFChunk.getParts("wave", [fmt, wsmp, ...data, info], true);
     }
 
     private writeFmt() {
@@ -179,6 +173,6 @@ export class DownloadableSoundsSample extends DLSVerifier {
         writeDword(fmtData, this.sampleRate * 2); // 16-bit samples
         writeWord(fmtData, 2); // WBlockAlign
         writeWord(fmtData, this.bytesPerSample * 8); // WBitsPerSample
-        return writeRIFFChunkRaw("fmt ", fmtData);
+        return RIFFChunk.write("fmt ", fmtData);
     }
 }

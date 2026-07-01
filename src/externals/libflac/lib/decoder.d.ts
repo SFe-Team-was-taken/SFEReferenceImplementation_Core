@@ -13,25 +13,25 @@ export declare class Decoder {
     private _isFinished;
     private _beforeReadyHandler?;
     /**
-     * input cache for decoding-chunk modus
+     * Input cache for decoding-chunk modus
      */
     private _inputCache;
     /**
-     * the current reading offset within the current input chache chunk
+     * The current reading offset within the current input chache chunk
      */
     private _currentInputCacheOffset;
     /**
-     * indicates that not enough data is cached for decoding the next chunk or
+     * Indicates that not enough data is cached for decoding the next chunk or
      * decoding is currently in progress
      */
     private _decodingChunkPaused;
     /**
-     * threshold for minimal amount of data (in bytes) that need to be cached,
+     * Threshold for minimal amount of data (in bytes) that need to be cached,
      * before triggering decoding the next data chunk
      */
     private _min_data_decode_threshold;
     /**
-     * cache for the decoded data
+     * Cache for the decoded data
      */
     protected data: Uint8Array[][];
     /**
@@ -44,7 +44,7 @@ export declare class Decoder {
     private readonly _onError;
     private readonly _onMetaData;
     /**
-     * will be (re-)set depending on decoding mode:
+     * Will be (re-)set depending on decoding mode:
      * either reading data as a whole, or reading data chunk-by-chunk
      */
     private _onReadData?;
@@ -56,12 +56,12 @@ export declare class Decoder {
     constructor(Flac: Flac, _options?: DecoderOptions);
     private _init;
     /**
-     * reset decoder:
+     * Reset decoder:
      * resets internal state and clears cached input/output data.
      */
     reset(options?: DecoderOptions): boolean;
     /**
-     * decode all data at once (will automatically finishes decoding)
+     * Decode all data at once (will automatically finishes decoding)
      *
      * **NOTE**: do not mix with [[decodeChunk]] calls!
      *
@@ -72,7 +72,7 @@ export declare class Decoder {
     /** finish decoding */
     decodeChunk(): boolean;
     /**
-     * decode next chunk of data:
+     * Decode next chunk of data:
      * if not enough data for decoding is cached, will pause until enough data
      * is cached, or flushing of the cache is forced.
      *
@@ -82,17 +82,17 @@ export declare class Decoder {
      */
     decodeChunk(flacData: Uint8Array): boolean;
     /**
-     * get non-interleaved (WAV) samples:
+     * Get non-interleaved (WAV) samples:
      * the returned array length corresponds to the number of channels
      */
     getSamples(): Uint8Array[];
     /**
-     * get non-interleaved (raw PCM) samples:
+     * Get non-interleaved (raw PCM) samples:
      * the returned array length corresponds to the number of channels
      */
     getSamples(isInterleaved: false): Uint8Array[];
     /**
-     * get interleaved samples:
+     * Get interleaved samples:
      * the returned array contains the data of all channels interleaved
      */
     getSamples(isInterleaved: true): Uint8Array;

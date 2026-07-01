@@ -9,18 +9,18 @@ This class represents a single zone.
 The zone's velocity range.
 
 An object:
+
 - min - the minimum velocity. A value of -1 means "unset" (maximum range)
 - max - the maximum velocity.
-
 
 ### keyRange
 
 The zone's key range.
 
 An object:
+
 - min - the minimum key number. A value of -1 means "unset" (maximum range)
 - max - the maximum key number.
-
 
 ### hasKeyRange
 
@@ -30,26 +30,25 @@ A boolean indicating if the zone has explicitly set key range.
 
 The zone's generators, an array of [`Generator`](generator.md)s.
 
-
 ### modulators
 
-The zone's generators, an array of [`Modulators`](modulator.md)s.
+The zone's modulators, an array of [`Modulator`](modulator.md)s.
 
 ### fineTuning
 
 Allows setting and getting zone's fine-tuning in cents, taking in both coarse and fine generators.
 
-## methods
+## Methods
 
 ### setGenerator
 
 Sets a generator to a given value.
 
 ```ts
-zone.setGenerator(type, value, validate = true);
+zone.setGenerator(type, value, (validate = true));
 ```
 
-- type - the one of the SF2 generator types, a number. `generatorTypes` enum contains all of them.
+- type - the one of the SF2 generator types, a number. `GeneratorTypes` enum contains all of them.
 - value - the value to set it to, a number. Set to `null` to delete the generator (unset).
 - validate - optional validation for the limits defined in the SF2 specification. recommended.
 
@@ -61,7 +60,7 @@ Gets a given generator value.
 zone.getGenerator(type, notFoundValue);
 ```
 
-- type - the one of the SF2 generator types, a number. `generatorTypes` enum contains all of them.
+- type - the one of the SF2 generator types, a number. `GeneratorTypes` enum contains all of them.
 - notFoundValue - what to return if the generator wasn't found. Any type or undefined.
 
 ### copyFrom
@@ -74,7 +73,7 @@ zone.copyFrom(zone);
 
 - zone - the `BasicZone` to copy from.
 
-## Sub classes
+## Sub-classes
 
 ### BasicInstrumentZone
 
@@ -88,11 +87,9 @@ The instrument this zone belongs to, a `BasicInstrument` instance.
 
 The sample for this zone, a `BasicSample` instance.
 
-
 ### BasicPresetZone
 
 Represents a single preset zone with an instrument.
-
 
 #### parentPreset
 

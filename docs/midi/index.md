@@ -9,17 +9,36 @@ BasicMIDI parser and represents a single MIDI sequence.
 ## Initialization
 
 ```ts
-const parsedMIDI = BasicMIDI.fromArrayBuffer(arrayBuffer, altName = "");
+const parsedMIDI = BasicMIDI.fromArrayBuffer(arrayBuffer, (altName = ""));
 ```
 
 - arrayBuffer - an `arrayBuffer` instance of the MIDI file.
-- altName - the *optional* name of the file, will be used if the MIDI file does not have a name.
+- altName - the _optional_ name of the file, will be used if the MIDI file does not have a name.
 
 ## Properties
 
 ### tracks
 
 The tracks in the sequence, represented as an array of [MIDI tracks](midi-track.md)
+
+### timeline
+
+A flattened, time‑sorted list of all events in the MIDI sequence.
+The order between the tracks is preserved.
+Each entry points to the event's track number and its index within that track.
+
+This is an array of objects:
+
+- `tr` - `number` - The track number of this event.
+- `ev` - `number` - The index of this event within the track.
+
+!!! Tip
+
+    This is the recommended way of iterating over the MIDI sequence's events.
+
+!!! Warning
+
+    Do not change this array. If you need to edit the file while iterating over it, consider using [`iterate`](#iterate)
 
 ### timeDivision
 
@@ -33,7 +52,7 @@ The sequence's duration in seconds.
 !!! Note
 
     The MIDI file's duration is the start of the file to `midi.lastVoiceEventTick`.
-    To alter the end time, 
+    To alter the end time,
     add a controller change (preferably an unused CC, like CC#50) at the time you want the file to end,
     then run `midi.flush()`
 
@@ -63,7 +82,7 @@ It will always contain at least one tempo change (the default 120BPM at zero tic
 
 Any extra metadata found in the file.
 These messages were deemed "interesting" by the parsing algorithm and can be displayed by the MIDI player as some form of metadata.
- 
+
 An array of [MIDI messages](midi-message.md).
 
 ### lyrics
@@ -76,7 +95,6 @@ An array of [MIDI messages](midi-message.md).
 
 The tick position of the first note-on event in the MIDI sequence.
 
-
 ### keyRange
 
 The maximum key range of the sequence.
@@ -86,18 +104,16 @@ An object:
 - min - the lowest MIDI note number in the sequence.
 - max - the highest MIDI note number in the sequence.
 
-
 ### lastVoiceEventTick
 
 The MIDI tick number of the last voice event in the sequence.
-Treated as the last event in the sequence, *even if the end of track is later.*
+Treated as the last event in the sequence, _even if the end of track is later._
 
 !!! Note
 
-    To alter the end time, 
+    To alter the end time,
     add a controller change (preferably an unused CC, like CC#50) at the time you want the file to end,
     then run `midi.flush()`
-
 
 ### portChannelOffsetMap
 
@@ -112,6 +128,24 @@ The points of the loop detected in the MIDI file in ticks.
 If there's nothing detected, the loop will start from the first note on event and end will be the last voice message.
 Current looping detection is: CC 2/4, 116/117 and "start," "loopStart" and "loopEnd" markers.
 
+#### start
+
+The start of the loop, in MIDI ticks.
+
+#### end
+
+The end of the loop, in MIDI ticks.
+
+#### type
+
+The type of the loop detected:
+
+- `soft` - the playback will immediately jump to the loop start pointer without any further processing.
+- `hard` - the playback will quickly process all messages from
+  the start of the file to ensure that synthesizer is in the correct state.
+  This is the default behavior.
+
+Soft loop types are enabled by default for Touhou and GameMaker loop points.
 
 ### fileName
 
@@ -124,15 +158,18 @@ String or undefined.
 The [MIDI file format.](https://www.music.mcgill.ca/~ich/classes/mumt306/StandardMIDIfileformat.html#BM2_2) Usually 0 or
 1, rarely 2.
 
-
 ### rmidiInfo
 
 The RMID (Resource-Interchangeable MIDI) info data, if the file is RMID formatted.
 Otherwise, this object is empty.
 Info type: Chunk data as a binary array.
-Note that text chunks contain a terminal zero byte.
 
 !!! Note
+
+    Text chunks contain a terminal zero byte, please take that into account when feeding the data to a `TextDecoder`.
+    [`getRMIDInfo`](#getrmidinfo) takes care of this automatically.
+
+!!! Tip
 
     See [SF2 RMIDI Extension Specification](https://github.com/spessasus/sf2-rmidi-specification#readme) for more info.
 
@@ -144,7 +181,6 @@ A `number` representing the bank offset of the file. Only applies to RMID, for n
 
 If the MIDI file is a Soft Karaoke file (.kar), this is set to true.
 https://www.mixagesoftware.com/en/midikit/help/HTML/karaoke_formats.html
-
 
 ### isDLSRMIDI
 
@@ -170,9 +206,8 @@ The encoding of the RMIDI info in file (for example `Shift_JIS` or `utf-8`), if 
 
 Loads a MIDI file (SMF, RMIDI, XMF) from a given ArrayBuffer.
 
-
 ```ts
-BasicMIDI.fromArrayBuffer(arrayBuffer, filename = "");
+BasicMIDI.fromArrayBuffer(arrayBuffer, (filename = ""));
 ```
 
 - arrayBuffer - the ArrayBuffer containing the binary file data.
@@ -181,7 +216,7 @@ BasicMIDI.fromArrayBuffer(arrayBuffer, filename = "");
 !!! Note
 
     This method is *static.*
-    
+
 ### fromFile
 
 Loads a MIDI file (SMF, RMIDI, XMF) from a given file.
@@ -195,7 +230,7 @@ BasicMIDI.fromFile(file);
 !!! Note
 
     This method is *static.*
-    
+
 ### copyFrom
 
 Copies the sequence (deep copy).
@@ -222,6 +257,22 @@ midi.midiTicksToSeconds(ticks);
 
 The returned value is the time in seconds from the start of the MIDI to the given tick.
 
+### secondsToMIDITicks
+
+Calculates time in MIDI ticks given seconds.
+
+```ts
+midi.secondsToMIDITicks(seconds);
+```
+
+- seconds - `number` - the time in seconds.
+
+The returned value is the time in MIDI ticks from the start of the MIDI to the given second.
+
+!!! Note
+
+    The returned value will always be rounded to the nearest integer.
+
 ### getUsedProgramsAndKeys
 
 Goes through the MIDI file and returns all used program numbers and MIDI key:velocity combinations for them,
@@ -233,17 +284,30 @@ const used = midi.getUsedProgramsAndKeys(soundBank);
 
 - soundBank - `BasicSoundBank` - an instance of the parsed sound bank to "play" the MIDI with.
 
-The returned value is `Map<BasicPreset, Set<string>>`. That is:
+The returned value is `PresetWithKeyCombinations` which is `Map<BasicPreset, Map<number, Set<number>>`. That is:
 
 - The key is a `BasicPreset`, the patch that was used by the song.
-- The value is a `Set` of all unique combinations played on this preset, formatted as `key-velocity`, e.g., `60-120` (
-  key 60, velocity 120)
+- The value is a `Map`, where:
+    - The key is the MIDI note number.
+    - The value is a set of all velocities this key was pressed with.
+
+### preloadSynth
+
+Preloads a given `SpessaSynthProcessor` instance.
+This caches all the needed voices for playing back this sequencer, resulting in a smooth playback.
+The sequencer calls this function by default when loading the songs. ([it can be disabled](../spessa-synth-sequencer/index.md#preload)).
+
+```ts
+midi.preloadSynth(synth);
+```
+
+- synth - a `SpessaSynthProcessor` instance to preload.
 
 ### flush
 
 Updates all parameters. Call this after editing the contents of `midi.tracks` (the events).
 
-This updates parameters like `fistNoteOn`, `lastVoiceEventTick` or `loop`.
+This updates parameters like `firstNoteOn`, `lastVoiceEventTick` or `loop`.
 
 ```ts
 midi.flush();
@@ -251,14 +315,14 @@ midi.flush();
 
 !!! Warning
 
-    Not calling `flush` after making significant changes to the track may result in unexpected behavior.
+    Not calling `flush` after making any changes to the track may result in unexpected behavior.
 
 ### getNoteTimes
 
 Returns nicely formatted note data for easy sequence visualization.
 
 ```ts
-const data = midi.getNoteTimes(minDrumLength = 0);
+const data = midi.getNoteTimes((minDrumLength = 0));
 ```
 
 - minDrumLength - number, defaults to 0 - a number, in seconds, representing the minimum allowed time for a drum note,
@@ -268,8 +332,8 @@ The returned value is an array of 16 arrays. Each of these represents one of the
 
 Each channel is a list of notes, represented as objects with properties:
 
-- midiNote - number - the MIDI key number,
-- velocity - number - the MIDI velocity,
+- midiNote - number - the MIDI key number.
+- velocity - number - the MIDI velocity.
 - start - number - start of the note, in seconds.
 - length - number - length of the note, in seconds.
 
@@ -277,12 +341,11 @@ Example:
 
 ```ts
 const data = [
-    [{midiNote: 60, velocity: 100, start: 0.5, length: 0.25}], // channel 1
+    [{ midiNote: 60, velocity: 100, start: 0.5, length: 0.25 }], // channel 1
     // other 14 channels...
-    [{midiNote: 36, velocity: 96, start: 41.54, length: 0.1}]  // channel 16
+    [{ midiNote: 36, velocity: 96, start: 41.54, length: 0.1 }] // channel 16
 ];
 ```
-
 
 ### writeMIDI
 
@@ -301,54 +364,213 @@ This function writes out an RMIDI file (MIDI + SF2).
 [See more info about this format](https://github.com/spessasus/sf2-rmidi-specification#readme)
 
 ```ts
-const rmidiBinary = midi.writeRMIDI(
-    soundBankBinary,
-    configuration
-);
+const rmidiBinary = midi.writeRMIDI(soundBankBinary, configuration);
 ```
 
 - See [Writing MIDI files](../writing-files/midi.md#writermidi) for more info.
-
 
 The returned value is an `ArrayBuffer` - a binary representation of the file.
 
 ### modify
 
-A function for modifying MIDI files.
-See [Writing MIDI files](../writing-files/midi.md#modify) for more info.
+Allows easily modifying the sequence's programs and controllers.
+This is a very sophisticated method that supports various MIDI systems
+and inserts/deletes messages appropriately.
+
+This modifies the MIDI sequence _in-place_.
+
+```ts
+midi.modify({
+    options: ModifyMIDIOptions
+});
+```
+
+The `options` parameter is an object.
+All of its following properties are optional.
+
+#### channels
+
+`Map<number, ClearableParameter<ChannelModification>>`
+
+The channel changes.
+
+- Key: the MIDI channel number.
+- value:
+    - `"clear"` - all MIDI messages for this channel, such as Note On are removed.
+    - `ChannelModification` - modifies the channel.
+
+The `ChannelModification` interface is described below, all properties are also optional:
+
+##### controllers
+
+`Map<MIDIController, ClearableParameter<number>>`
+
+All controllers that should be modified for this channel.
+
+- Key: the MIDI controller number.
+- value:
+    - `"clear"` - all controller changes for this controller are removed.
+    - `number` - clear + sets the new controller at the start of the song, effectively locking them to the set value.
+
+##### patch
+
+`ClearableParameter<MIDIPatch>`
+
+The new program of this channel.
+
+- `"clear"` - all program changes for this channel are removed.
+- `MIDIPatch` - clear + sets the new patch according to the MIDI system at the start of the sequence.
+
+##### keyShift
+
+`number`
+
+The channel key shift in semitones.
+Note on/off numbers are shifted.
+
+##### fineTune
+
+`number`
+
+The channel tuning in cents.
+Tuned using RPN Fine Tune.
+Range is `[-100; 99.987]` cents.
+
+#### drumSetupParams
+
+`ClearableParameter<never>`
+
+The drum parameter changes.
+
+- `"clear"` - all existing drum parameter change MIDI messages are removed.
+- `never` - not yet implemented.
+
+#### reverbParams
+
+`ClearableParameter<ReverbProcessorSnapshot>`
+
+The desired GS reverb parameters.
+
+- `"clear"` - all existing parameter change MIDI messages are removed.
+- `ReverbProcessorSnapshot` - clear + the new parameters are set via System Exclusive messages.
+
+#### chorusParams
+
+`ClearableParameter<ChorusProcessorSnapshot>`
+
+The GS chorus parameters.
+
+- `"clear"` - all existing parameter change MIDI messages are cleared.
+- `ChorusProcessorSnapshot` - clear + the new parameters are set via System Exclusive messages.
+
+#### delayParams
+
+`ClearableParameter<DelayProcessorSnapshot>`
+
+The GS delay parameters.
+
+- `"clear"` - all existing parameter change MIDI messages are cleared.
+- `DelayProcessorSnapshot` - clear + the new parameters are set via System Exclusive messages.
+
+#### insertionParams
+
+The GS Insertion Effect parameters.
+
+- `"clear"` - all existing parameter change MIDI messages are cleared.
+- `InsertionProcessorSnapshot` - clear + the new parameters are set via System Exclusive messages.
+
+This interface is defined as follows:
+
+```ts
+interface InsertionProcessorSnapshot {
+    type: number;
+    /**
+     * Parameters for the effect, 255 means "no change"
+     */
+    params: Uint8Array;
+
+    /**
+     * 0-127
+     * This parameter sets the amount of insertion sound that will be sent to the reverb.
+     * Higher values result in more sound being sent.
+     */
+    sendLevelToReverb: number;
+
+    /**
+     * 0-127
+     * This parameter sets the amount of insertion sound that will be sent to the chorus.
+     * Higher values result in more sound being sent.
+     */
+    sendLevelToChorus: number;
+
+    /**
+     * 0-127
+     * This parameter sets the amount of insertion sound that will be sent to the delay.
+     * Higher values result in more sound being sent.
+     */
+    sendLevelToDelay: number;
+
+    /**
+     * A boolean list for channels that have the insertion effect enabled.
+     */
+    channels: boolean[];
+}
+```
 
 ### applySnapshot
 
-A function for applying a [Synthesizer snapshot](../spessa-synth-processor/synthesizer-snapshot.md) to a MIDI file.
-See [Writing MIDI files](../writing-files/midi.md) for more info.
+Applies a [SynthesizerSnapshot](../spessa-synth-processor/synthesizer-snapshot.md) to the sequence _in place_.
+This means changing the programs and controllers if they are locked.
+
+!!! Note
+
+    System Parameters `fineTune` and `keyShift` are passed to the relative tuning parameters of the channels.
+    MIDI Parameters are passed directly.
+
+```ts
+midi.applySnapshot(snapshot);
+```
+
+- snapshot - the `SynthesizerSnapshot` to use.
+
+For example, if channel 1 has locked preset on `Drawbar Organ`,
+this will remove all program changes for channel 1 and add one at the start to change the program to `Drawbar organ`.
+
+!!! Warning
+
+    `fineTune` parameter will be truncated to range -100 to 99 cents.
 
 ### getName
 
 Gets the MIDI's decoded name.
 
 ```ts
-midi.getName(encoding = "Shift_JIS");
+midi.getName((encoding = "Shift_JIS"));
 ```
 
 - encoding - The encoding to use if the MIDI uses an extended code page.
 
-Note that RMIDI encoding overrides the provided encoding.
-
 The returned value is a string - the name of the song or the file name if it's not specified. Otherwise, empty.
+
+!!! Note
+
+    The RMIDI encoding overrides the provided encoding.
 
 ### getExtraMetadata
 
 Gets the decoded extra metadata as text and removes any unneeded characters (such as "@T" for karaoke files).
 
 ```ts
-midi.getExtraMetadata(encoding = "Shift_JIS");
+midi.getExtraMetadata((encoding = "Shift_JIS"));
 ```
 
 - encoding - The encoding to use if the MIDI uses an extended code page.
 
-Note that RMIDI encoding overrides the provided encoding.
-
 The returned value is an array of strings - each `extraMetadata` decoded and sanitized.
+
+!!! Note
+
+    The RMIDI encoding overrides the provided encoding.
 
 ### setRMIDInfo
 
@@ -364,7 +586,6 @@ midi.setRMIDInfo(infoType, infoData);
 !!! Note
 
     This sets the info encoding to utf-8.
-    
 
 ### getRMIDInfo
 
@@ -378,7 +599,6 @@ midi.getRMIDInfo(infoType);
 
 Returns string, Date, ArrayBuffer or undefined.
 
-
 ### iterate
 
 Iterates over the MIDI file, ordered by the time the events happen.
@@ -391,3 +611,14 @@ midi.iterate(callback);
     - event - the `MIDIMessage`.
     - trackNumber - the track number of this event.
     - eventIndexes - the current event indexes for each track. If your function deletes or adds new events, make sure to update the indexes accordingly!
+
+This method allows for deletion or insertion of events in the callback, as long as the track index in `eventIndexes` gets properly updated
+(incremented for event addition and decremented for event deletion for the corresponding track).
+
+!!! Tip
+
+    Consider iterating over the [`timeline`](#timeline) property
+    if you are not editing the MIDI file in your loop.
+    It is usually a faster solution and allows custom loops.
+
+    If you are editing the file, remember to [`flush`](#flush) it after editing!

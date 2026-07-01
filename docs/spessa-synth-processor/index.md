@@ -1,12 +1,8 @@
 # SpessaSynthProcessor
+
 The core synthesis engine of SpessaSynth.
 This module converts sound bank and MIDI data into PCM audio data.
 The internal synthesis system is modeled after SoundFont2 synthesis model.
-
-## Example
-
-A good example of the processor in use can be
-seen [spessasynth_lib's AudioWorklet wrapper](https://github.com/spessasus/spessasynth_lib/blob/master/src/synthetizer/worklet_processor.js).
 
 ## Initialization
 
@@ -17,116 +13,128 @@ const synth = new SpessaSynthProcessor(sampleRate, options);
 - sampleRate - number - sample rate in Hertz, for example 44,100Hz.
 - options - optional configuration, explained below:
 
-```ts
-interface SynthProcessorOptions {
-    /**
-     * Indicates if the event system is enabled. This can be changed later.
-     */
-    enableEventSystem: boolean;
-    /**
-     * The initial time of the synth, in seconds.
-     */
-    initialTime: number;
-    /**
-     * Indicates if the effects are enabled. This can be changed later.
-     */
-    enableEffects: boolean;
-};
-```
+### Synth processor options
+
+- maxBufferSize - `number` - The maximum buffer size the synthesizer can render at once.
+  Attempting to `.process()` more samples than this will result in an error. Defaults to 128.
+- enable event system - `boolean` - Indicates if the event system is enabled. This can be changed later.
+- initialTime - `number` - The initial time of the synth, in seconds.
+- enableEffects - `boolean` - Indicates if the effects are enabled. This can be changed later.
+- reverbProcessor - `ReverbProcessor` - Reverb processor for the synthesizer. Leave undefined to use the default.
+- chorusProcessor - `ChorusProcessor` - Chorus processor for the synthesizer. Leave undefined to use the default.
+- delayProcessor - `DelayProcessor` - Delay processor for the synthesizer. Leave undefined to use the default.
+
+All properties are optional. If they are not supplied, the defaults will be used.
+
+## Effects
+
+- [Reverb](effects/reverb-processor.md) - How to implement your own reverb processor.
+- [Chorus](effects/chorus-processor.md) - How to implement your own chorus processor.
+- [Delay](effects/delay-processor.md) - How to implement your own delay processor.
 
 ## Managers
 
 - [Key Modifier Manager](key-modifier-manager.md)
 - [Sound Bank Manager](sound-bank-manager.md)
 
-
 ## Methods
 
-### renderAudio
+### process
 
-Render PCM float32 audio data to the stereo outputs.
+Render PCM float32 audio data to the stereo outputs and processes the effects if they are enabled.
 
 ```ts
-synth.renderAudio(outputs, reverb, chorus, startIndex = 0, sampleCount = all);
+synth.process(left, right, (startIndex = 0), (sampleCount = all));
 ```
 
-- outputs - an array of exactly two `Float32Array` - the left and right audio output buffer, respectively.
-- reverb - an array of exactly two `Float32Array` - the left and right audio buffer for the reverb processor.
-- chorus - an array of exactly two `Float32Array` - the left and right audio buffer for the chorus processor.
+- left - a `Float32Array` - the left audio output buffer.
+- right - a `Float32Array` - the right audio output buffer.
 - startIndex - optional, `number` - the offset at which to start rendering audio in the provided arrays. Default is 0.
 - sampleCount - optional, `number` - the number of samples to render. Default is the entire length, starting from
   `startIndex`.
 
-All `Float32Array`s must be the same length.
+**All `Float32Array`s must be the same length**
 
-!!! Warning
+!!! Danger
 
     This method renders a single quantum of audio.
     The LFOs and envelopes are only processed at the beginning.
-    The sampleCount/audio buffer should not be longer than 256 samples.
+    `sampleCount` cannot exceed `maxBufferSize`. Larger values will throw an exception!
 
-!!! Tip
-
-    If `effetctsEnabled` is set to false, the effect arrays passed can be empty (`[]`).
-
-### renderAudioSplit
+### processSplit
 
 Render PCM float32 audio data of separate channels + effects.
 
 ```ts
-synth.renderAudioSplit(reverbChannels, chorusChannels, separateChannels, startIndex = 0, sampleCount = all);
+synth.processSplit(
+    outputs,
+    effectsLeft,
+    effectsRight,
+    (startIndex = 0),
+    (sampleCount = all)
+);
 ```
 
-- reverbChannels - an array of exactly two `Float32Array` - the left and right audio buffer for the reverb processor.
-- chorusChannels - an array of exactly two `Float32Array` - the left and right audio buffer for the chorus processor.
-- separateChannels - an array of exactly 16 pairs of `Float32Array` - one pair represents one channel,
-  for example, the first pair is first channels L and R outputs and so on.
+- separateChannels - an array of `Float32Array` pairs - one pair represents one channel (`[L, R]`),
+  for example, the first pair is first channels L and R outputs and so on. If there are fewer arrays than the channels,
+  the extra channels will render into the same arrays.
+- effectsLeft - a `Float32Array`- the left output buffer for effects.
+- effectsRight - a `Float32Array` - the right output buffer for effects.
 - startIndex - optional, `number` - the offset at which to start rendering audio in the provided arrays. Default is 0.
 - sampleCount - optional, `number` - the number of samples to render. Default is the entire length, starting from
   `startIndex`.
 
-All `Float32Array`s must be the same length.
+**All `Float32Array`s must be the same length**
 
-!!! Warning
+!!! Danger
 
     This method renders a single quantum of audio.
     The LFOs and envelopes are only processed at the beginning.
-    The sampleCount/audio buffer should not be longer than 256 samples.
+    `sampleCount` cannot exceed `maxBufferSize`. Larger values will throw an exception!
+
+### systemExclusive
+
+Handle a MIDI System Exclusive message.
+
+```ts
+synth.systemExclusive(messageData, (channelOffset = 0));
+```
+
+- messageData - Uint8Array, the message byte data **Excluding the 0xF0 byte!**
+- channelOffset - number, the channel offset for the message as they usually can only address the first 16 channels.
+  For example, to send a system exclusive on channel 16,
+  send a system exclusive for channel 0 and specify the channel offset to be 16.
 
 !!! Tip
 
-    If `enableEffects` is set to false, the effect arrays passed can be empty (`[]`).
+    Refer to the
+    [MIDI Implementation](../extra/midi-implementation.md#system-exclusives)
+    for the list of supported System Exclusives.
 
-### destroySynthProcessor
+### controllerChange
 
-Delete all internal values and free up the memory.
-
-### createMIDIChannel
-
-Create a new MIDI channel.
-
-### processMessage
-
-Send a raw MIDI message to the synthesizer. Calls noteOn, noteOff, etc. internally.
+Set a given MIDI controller to a given value.
 
 ```ts
-synth.processMessage(message, channelOffset = 0, force, eventOptions);
+synth.controllerChange(channel, controller, value);
 ```
 
-- message - `Uint8Array` - The MIDI message to process.
-- channelOffset - number, optional - adds to the channel number of the message. It defaults to 0.
-- force - boolean - forces the message. That is:
-    - kills a note instead of releasing it
-    - force sets a controller
-- eventOptions - an object, currently defined properties are:
-    - time - number - time in seconds for when the message is executed.
-      This allows message scheduling.
-      Absolute time in synth's current time.
-      A value less than the current time causes the message to get executed immediately.
+- channel - the MIDI channel to use. It usually ranges from 0 to 15, but it depends on the channel count.
+- controller - the MIDI CC number of the controller to change.
+  Refer
+  to [this table](../extra/midi-implementation.md#default-supported-controllers)
+  for the list of controllers
+  supported by default.
+- value - the value to set the given controller to. Ranges from 0 to 127.
+
+!!! Tip
+
+    See the [MIDI Implementation](../extra/midi-implementation.md#default-supported-controllers) for more details.
 
 ### noteOn
 
-Start playing note.
+Executes a MIDI Note On message on the specified channel.
+Starts playing a note.
 
 ```ts
 synth.noteOn(channel, midiNote, velocity);
@@ -134,14 +142,16 @@ synth.noteOn(channel, midiNote, velocity);
 
 - channel - the MIDI channel to use. It usually ranges from 0 to 15, but it depends on the channel count.
 - midiNote - the note to play. Ranges from 0 to 127.
-- velocity - controls how loud the note is.
-  Note that velocity of 0 has
-  the same effect as using `noteOff`.
-  Ranges from 0 to 127, where 127 is the loudest and 1 is the quietest.
+- velocity - controls how loud the note is. Ranges from 0 to 127, where 127 is the loudest and 1 is the quietest.
+
+!!! Note
+
+    Velocity of 0 has the same effect as using `noteOff`.
 
 ### noteOff
 
-Stop playing a note.
+Executes a MIDI Note Off message on the specified channel.
+Stops playing a note.
 
 ```ts
 synth.noteOff(channel, midiNote);
@@ -150,9 +160,47 @@ synth.noteOff(channel, midiNote);
 - channel - the MIDI channel to use. It Usually ranges from 0 to 15, but it depends on the channel count.
 - midiNote - the note to play. Ranges from 0 to 127.
 
+### polyPressure
+
+Executes a MIDI Poly Pressure (Aftertouch) message on the specified channel.
+This differs from the Channel Pressure in that it's per-note and not for the whole channel.
+
+```ts
+synth.polyPressure(channel, midiNote, pressure);
+```
+
+- channel - the channel to use. It usually ranges from 0 to 15, but it depends on the channel count.
+- midiNote - the note to apply pressure to. Ranges from 0 to 127.
+- pressure - the pressure to apply. Ranges from 0 to 127.
+
+### channelPressure
+
+Executes a MIDI Channel Pressure (Aftertouch) message on the specified channel.
+
+```ts
+synth.channelPressure(channel, pressure);
+```
+
+- channel - the channel to use. It usually ranges from 0 to 15, but it depends on the channel count.
+- pressure - the pressure to apply. Ranges from 0 to 127.
+
+### pitchWheel
+
+Executes a MIDI Pitch Wheel message on the specified channel.
+
+```ts
+synth.pitchWheel(channel, pitch, (midiNote = -1));
+```
+
+- channel - the MIDI channel to use. It usually ranges from 0 to 15, but it depends on the channel count.
+- pitch - the 14-bit MIDI pitch value to use (0 - 16,383)
+- midiNote, optional - allows to set per-note pitch wheel,
+  which will activate the per-note pitch mode.
+  Leave unset or set to -1 for a regular pitch wheel.
+
 ### programChange
 
-Change the preset for the given channel.
+Executes a MIDI Program Change message on the specified channel.
 
 ```ts
 synth.programChange(channel, programNumber);
@@ -164,187 +212,161 @@ synth.programChange(channel, programNumber);
   To use other banks, go
   to [controllerChange](#controllerchange).
 
-### pitchWheel
+### processMessage
 
-Change the channel's pitch, including the currently playing notes.
-
-```ts
-synth.pitchWheel(channel, pitch);
-```
-
-- channel - the MIDI channel to use. It usually ranges from 0 to 15, but it depends on the channel count.
-- pitch - the 14-bit MIDI pitch value to use (0 - 16,383)
-
-!!! Tip
-
-    [I highly recommend this article for more info.](https://www.recordingblogs.com/wiki/midi-pitch-wheel-message)
-
-### systemExclusive
-
-Handle a MIDI System Exclusive message.
+Processes a raw MIDI message and allows scheduling it at a specific time.
 
 ```ts
-synth.systemExclusive(messageData, channelOffset = 0);
+synth.processMessage(message, (channnelOffset = 0), (options = null));
 ```
 
-- messageData - Uint8Array, the message byte data **Excluding the 0xF0 byte!**
-- channelOffset - number, the channel offset for the message as they usually can only address the first 16 channels.
-  For example, to send a system exclusive on channel 16,
-  send a system exclusive for channel 0 and specify the channel offset to be 16.
+- message - `number` or any byte Typed Array (like `Uint8Array`) - the MIDI message to process.
+- channelOffset - `number`, optional - adds to the channel number of the message. It defaults to 0.
+- eventOptions - an `object`, currently defined properties are:
+    - time - `number` - time in seconds for when the message is executed.
+      This allows message scheduling.
+      Absolute time in synth's current time.
+      A value less than the current time causes the message to get executed immediately.
 
-!!! Tip
+### lockMIDIParameter
 
-    Refer to 
-    [MIDI Implementation](../extra/midi-implementation.md) for the list of supported System Exclusives.
-
-### controllerChange
-
-Set a given MIDI controller to a given value.
+Locks or unlocks a given [Global MIDI Parameter.](global-parameters.md#midi)
+This prevents any changes to it until it's unlocked.
 
 ```ts
-synth.controllerChange(channel, controllerNumber, controllerValue);
+synth.lockMIDIParameter(parameter, isLocked);
 ```
 
-- channel - the MIDI channel to use. It usually ranges from 0 to 15, but it depends on the channel count.
-- controllerNumber - the MIDI CC number of the controller to change.
-  Refer
-  to [this table](../extra/midi-implementation.md#default-supported-controllers)
-  for the list of controllers
-  supported by default.
-- controllerValue - the value to set the given controller to. Ranges from 0 to 127.
+- parameter - the Global MIDI Parameter to lock, a string of the parameter type.
+- isLocked - if the parameter should be locked, boolean.
 
-!!! Note
+### setSystemParameter
 
-    Note that theoretically all controllers are supported as it depends on the SoundFont's modulators.
+Set a [Global System Parameter.](global-parameters.md#system)
 
-### resetAllControllers
+```ts
+synth.setSystemParameter(parameter, value);
+```
 
-Reset all controllers and all programs to their default values. Essentially a system reset.
+- parameter - the type of the parameter to set, a string of the parameter type.
+- value - the value of the parameter to set, depends on the type.
+
+### reset
+
+Executes a full system reset of all controllers.
 This will reset all controllers to their default values,
 except for the locked controllers.
 
 ```ts
-synth.resetAllControllers();
+synth.reset(system);
 ```
 
-### channelPressure
+- system, optional - The `MIDISystem` to reset the synthesizer to. Defaults to `gs`.
 
-Apply pressure to the given channel. It usually controls the vibrato amount.
+### applySnapshot
+
+Applies a [SynthesizerSnapshot](synthesizer-snapshot.md) to this synthesizer.
 
 ```ts
-synth.channelPressure(channel, pressure);
+synth.applySnapshot(snapshot);
 ```
 
-- channel - the channel to use. It usually ranges from 0 to 15, but it depends on the channel count.
-- pressure - the pressure to apply. Ranges from 0 to 127.
+- snapshot - the snapshot to apply.
 
-### polyPressure
+!!! WARNING
 
-Apply pressure to the given note on a given channel. It usually controls the vibrato amount.
+    This method overrides the existing system parameters with the ones from the snapshot.
+
+### getSnapshot
+
+Gets a [SynthesizerSnapshot](synthesizer-snapshot.md) instance of this synthesizer.
+
+### createMIDIChannel
+
+Creates a new MIDI channel and adds it to the synthesizer.
 
 ```ts
-synth.polyPressure(channel, midiNote, pressure);
+synth.createMIDIChannel();
 ```
-
-- channel - the channel to use. It usually ranges from 0 to 15, but it depends on the channel count.
-- midiNote - the note to apply pressure to. Ranges from 0 to 127.
-- pressure - the pressure to apply. Ranges from 0 to 127.
 
 ### stopAllChannels
 
 Stop all voices on all channels.
 
 ```ts
-synth.stopAllChannels(force = false);
+synth.stopAllChannels((force = false));
 ```
 
-- force - if true, the voices will be cut instead of releasing smoothly.
+- force - if true,
+  all notes are stopped immediately,
+  otherwise they are stopped gracefully.
 
-### setMasterParameter
+### destroySynthProcessor
 
-Set a [master parameter.](master-parameter.md)
+Delete all internal values and free up the memory.
 
-```ts
-synth.setMasterParameter(type, value);
-```
-
-- type - the type of the parameter to set, a string of the parameter type.
-- value - the value of the parameter to set, depends on the type.
-
-### getMasterParameter
-
-Get a [master parameter.](master-parameter.md)
-
-```ts
-synth.getMasterParameter(type);
-```
-
-- type - the type of the master parameter to get, a string of the parameter type.
-
-Returns the value of the master parameter.
-
-### getAllMasterParameters
-
-Get all master parameters of the synthesizer.
-
-This returns all the master parameters as a type: value object.
-
-### killVoices
-
-Kill (immediately stops without any fading) the specified number of voices based on their priority.
-
-```ts
-synth.killVoices(amount);
-```
-
-- amount - the amount of voices to remove.
-
-### applySynthesizerSnapshot
-
-Apply a [SynthesizerSnapshot](synthesizer-snapshot.md) to this synthesizer.
-
-```ts
-synth.applySynthesizerSnapshot(snapshot);
-```
-
-- snapshot - the snapshot to apply.
-
-### getSnapshot
-
-Get a [SynthesizerSnapshot](synthesizer-snapshot.md) instance of this synthesizer.
-
-
-### setEmbeddedSoundBank
-
-Set the embedded sound bank to this synthesizer.
-
-This method shouldn't generally be used as it is only used by the sequencer.
-Use the sound bank manager directly.
-
-### clearEmbeddedSoundbank
-
-Remove the embedded sound bank from the synthesizer.
-
-## clearCache
+### clearCache
 
 Clear the synthesizer's voice cache.
 
 ## Properties
 
+### processorInitialized
+
+A `Promise` that must be awaited before the processor can be used with a compressed sound bank.
+
+### sampleRate
+
+The sample rate in Hertz.
+
 ### onEventCall
 
 This property can be defined as a function that listens for events.
 
-Parameters the function gets called with:
+Parameters the function gets called with an object:
 
-- eventType - SynthProcessorEventData - the event type.
-- eventData - depends - the event data.
+- type - `SynthProcessorEventData` (string) - the event type.
+- data - depends - the event data.
 
 [Refer to the synth event types for all events.](event-types.md)
 
 ### midiChannels
 
 All MIDI channels of the synthesizer, an array of `MIDIChannel`.
+
+### midiParameters
+
+The current [Global MIDI Parameters](global-parameters.md#midi) of the synthesizer.
+These are only editable via MIDI messages.
+
+Stored as key: value. Readonly.
+
+### systemParameters
+
+The current [Global System Parameters](global-parameters.md#system) of the synthesizer.
+These are only editable via the API.
+
+Stored as key: value. Readonly.
+
+### voiceCount
+
+The current total amount of voices that are playing, a number.
+
+### currentTime
+
+The current time of the synthesizer, in seconds.
+
+### reverbProcessor
+
+Synthesizer's reverb processor, a [`ReverbProcessor` instance](effects/reverb-processor.md)
+
+### chorusProcessor
+
+Synthesizer's chorus processor, a [`ChorusProcessor` instance](effects/chorus-processor.md)
+
+### delayProcessor
+
+Synthesizer's delay processor, a [`DelayProcessor` instance](effects/delay-processor.md)
 
 ### soundBankManager
 
@@ -354,31 +376,14 @@ The [sound bank manager](sound-bank-manager.md) of this synthesizer.
 
 The [key modifier manager](key-modifier-manager.md) of this synthesizer.
 
-### totalVoicesAmount
+### onMissingPreset
 
-The current total amount of voices that are currently playing, a number.
+A handler for missing presets during program change. By default, it warns to console.
+It may be useful for allowing the synthesizer to work without any sound banks.
 
-### processorInitialized
+Parameters the function gets called with:
 
-A `Promise` that must be awaited before the processor is used with a compressed sound bank.
+- patch - `MIDIPatch` - the MIDI patch that was requested.
+- system - `MIDISystem` (`gs`, `xg`, `gm` or `gm2`) - the MIDI System for the request.
 
-### currentSynthTime
-
-The current time of the synthesizer, in seconds.
-
-!!! Warning
-
-    You should not modify this.
-
-### sampleRate
-
-The sample rate in Hertz.
-
-### enableEffects
-
-Enable or disable the effect channels.
-
-### enableEventSystem
-
-Enable or disable the event system.
-Setting this to `false` will cause the synthesizer to not emit any `onEventCall` callbacks.
+If a `BasicPreset` instance is returned by the function, it will be used by the channel.

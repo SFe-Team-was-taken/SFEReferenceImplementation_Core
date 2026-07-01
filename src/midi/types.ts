@@ -1,5 +1,4 @@
 import type { BasicSoundBank } from "../soundbank/basic_soundbank/basic_soundbank";
-import type { MIDIPatch } from "../soundbank/basic_soundbank/midi_patch";
 
 /**
  * RMIDInfoData type represents metadata for an RMIDI file.
@@ -82,6 +81,8 @@ export interface TempoChange {
     tempo: number;
 }
 
+export type MIDILoopType = "soft" | "hard";
+
 export interface MIDILoop {
     /**
      * Start of the loop, in MIDI ticks.
@@ -91,6 +92,17 @@ export interface MIDILoop {
      * End of the loop, in MIDI ticks.
      */
     end: number;
+
+    /**
+     * The type of the loop detected:
+     * - Soft - the playback will immediately jump to the loop start pointer without any further processing.
+     * - Hard - the playback will quickly process all messages from
+     * the start of the file to ensure that synthesizer is in the correct state.
+     * This is the default behavior.
+     *
+     * Soft loop types are enabled for Touhou and GameMaker loop points.
+     */
+    type: MIDILoopType;
 }
 
 export type MIDIFormat = 0 | 1 | 2;
@@ -112,52 +124,6 @@ export interface NoteTime {
      * The MIDI velocity of the note.
      */
     velocity: number;
-}
-
-/**
- * Represents a desired program change for a MIDI channel.
- */
-export interface DesiredProgramChange extends MIDIPatch {
-    /**
-     * The channel number.
-     */
-    channel: number;
-}
-
-/**
- * Represents a desired controller change for a MIDI channel.
- */
-export interface DesiredControllerChange {
-    /**
-     * The channel number.
-     */
-    channel: number;
-
-    /**
-     * The MIDI controller number.
-     */
-    controllerNumber: number;
-
-    /**
-     * The new controller value.
-     */
-    controllerValue: number;
-}
-
-/**
- * Represents a desired channel transpose change.
- */
-export interface DesiredChannelTranspose {
-    /**
-     * The channel number.
-     */
-    channel: number;
-
-    /**
-     * The number of semitones to transpose.
-     * This can use floating point numbers, which will be used to fine-tune the pitch in cents using RPN.
-     */
-    keyShift: number;
 }
 
 export interface RMIDIWriteOptions {
@@ -212,3 +178,19 @@ export type RMIDInfoFourCC =
     | "MENC"
     // Bank offset
     | "DBNK";
+
+export interface TimelineEvent {
+    /**
+     * The track number of this event.
+     */
+    tr: number;
+    /**
+     * The index of this event within the track.
+     */
+    ev: number;
+}
+export type SysExAcceptedArray =
+    | number[]
+    | Uint8Array
+    | Int8Array
+    | Uint8ClampedArray;

@@ -140,3 +140,35 @@ export function signedInt8(byte: number): number {
     }
     return byte;
 }
+
+
+
+/**
+ * Splits 64-bit integers (qwords) into two 32-bit integers (dwords) for bitwise processing.
+ * Returns lower (lower 32 bits) and upper (upper 32 bits).
+ * JavaScript's built-in bitwise functions cannot be used with 64-bit numbers.
+ * Attempting to do so will result in truncation to 32-bit numbers and value corruption.
+ * @param {*} qword 64-bit integer
+ */
+
+export function splitQword(qword: number): {
+        upper: number,
+        lower: number
+    }
+    {
+    let subtractValue = 9223372036854775808;
+    let lowerDword = qword;
+    while (subtractValue >= 4294967296)
+    {
+        if (lowerDword >= subtractValue)
+        {
+            lowerDword -= subtractValue;
+        }
+        subtractValue /= 2;
+    }
+    const upperDword = (qword - lowerDword) / 4294967296;
+    return {
+        upper: upperDword,
+        lower: lowerDword
+    }
+}

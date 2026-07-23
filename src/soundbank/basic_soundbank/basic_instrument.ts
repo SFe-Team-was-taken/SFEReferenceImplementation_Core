@@ -300,6 +300,11 @@ export class BasicInstrument {
         }
     }
 
+    /**
+     * @internal
+     * @param instData
+     * @param index
+     */
     public write(instData: ExtendedSF2Chunks, index: number) {
         SpessaLog.info(`%cWriting ${this.name}...`, ConsoleColors.info);
         // Encode to UTF-8

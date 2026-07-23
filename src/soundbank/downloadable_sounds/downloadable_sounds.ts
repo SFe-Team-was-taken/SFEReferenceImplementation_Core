@@ -25,6 +25,9 @@ import { BasicSoundBank } from "../basic_soundbank/basic_soundbank";
 import { BankSelectHacks } from "../../utils/midi_hacks";
 import { DownloadableSoundsRegion } from "./region";
 import { fillWithDefaults } from "../../utils/fill_with_defaults";
+import { ConnectionBlock } from "./connection_block";
+import { ConnectionSource } from "./connection_source";
+import { DLSDestinations, DLSSources } from "./enums";
 
 export const DEFAULT_DLS_OPTIONS: DLSWriteOptions = {
     software: "SpessaSynth" // ( ͡° ͜ʖ ͡°)
@@ -53,7 +56,7 @@ export class DownloadableSounds extends DLSVerifier {
         SpessaLog.group("%cParsing DLS file...", ConsoleColors.info);
 
         // Read the main chunk
-        const firstChunk = RIFFChunk.read(dataArray, false);
+        const firstChunk = RIFFChunk.read(dataArray, false, false);
         this.verifyHeader(firstChunk, "RIFF");
         this.verifyText(
             readBinaryStringIndexed(dataArray, 4).toLowerCase(),
@@ -211,23 +214,39 @@ export class DownloadableSounds extends DLSVerifier {
             );
             pgalData.currentIndex += 128;
             for (let keyNum = 0; keyNum < 128; keyNum++) {
-                const alias = drumAliases[keyNum];
-                if (alias === keyNum) {
+                const source = drumAliases[keyNum];
+                if (source === keyNum) {
                     // Skip the same aliases
                     continue;
                 }
                 const region = drumInstrument.regions.find(
-                    (r) => r.keyRange.max === alias && r.keyRange.min === alias
+                    (r) =>
+                        r.keyRange.max === source && r.keyRange.min === source
                 );
                 if (!region) {
                     SpessaLog.warn(
-                        `Invalid drum alias ${keyNum} to ${alias}: region does not exist.`
+                        `Invalid drum alias ${keyNum} to ${source}: region does not exist.`
                     );
                     continue;
                 }
                 const copied = DownloadableSoundsRegion.copyFrom(region);
                 copied.keyRange.max = keyNum;
                 copied.keyRange.min = keyNum;
+
+                // Ensure that the key plays back exactly like the source
+                // https://github.com/FluidSynth/fluidsynth/issues/1804
+                // Testcase: mobile60.dls
+
+                // Essentially the "keyNum" generator
+                const fixedKeyBlock = new ConnectionBlock(
+                    new ConnectionSource(DLSSources.none, 0, false, false),
+                    new ConnectionSource(DLSSources.none, 0, false, false),
+                    DLSDestinations.keyNum,
+                    0,
+                    source << 16
+                );
+                copied.articulation.connectionBlocks.push(fixedKeyBlock);
+
                 drumInstrument.regions.push(copied);
             }
             // 4 bytes: Unknown purpose, 'footer'.
@@ -363,6 +382,7 @@ export class DownloadableSounds extends DLSVerifier {
         const lins = RIFFChunk.getParts(
             "lins",
             this.instruments.map((i) => i.write()),
+            false,
             true
         );
         SpessaLog.info("%cSuccess!", ConsoleColors.recognized);
@@ -392,7 +412,7 @@ export class DownloadableSounds extends DLSVerifier {
             samples.push(...out);
             written++;
         }
-        const wvpl = RIFFChunk.getParts("wvpl", samples, true);
+        const wvpl = RIFFChunk.getParts("wvpl", samples, false, true);
         SpessaLog.info("%cSucceeded!", ConsoleColors.recognized);
 
         // Write ptbl
@@ -431,7 +451,7 @@ export class DownloadableSounds extends DLSVerifier {
             ...lins,
             ptbl,
             ...wvpl,
-            ...RIFFChunk.getParts("INFO", infos, true)
+            ...RIFFChunk.getParts("INFO", infos, false, true)
         ]);
 
         SpessaLog.info("%cSaved successfully!", ConsoleColors.recognized);

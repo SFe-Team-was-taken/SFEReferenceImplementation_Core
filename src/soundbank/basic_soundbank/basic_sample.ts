@@ -4,6 +4,10 @@ import { type SampleType, SampleTypes } from "../enums";
 import type { BasicInstrument } from "./basic_instrument";
 import type { SampleEncodingFunction } from "../types";
 import { SpessaLog } from "../../utils/loggin";
+import { readBinaryString } from "../../utils/byte_functions/string";
+import { readLittleEndianIndexed } from "../../utils/byte_functions/little_endian";
+import { RIFFChunk } from "../../utils/riff_chunk";
+import { readPCM, readALAW, W_FORMAT_TAG } from "../basic_soundbank/wav_sample";
 
 // Should be reasonable for most cases
 const RESAMPLE_RATE = 48_000;
@@ -293,8 +297,67 @@ export class BasicSample {
         if (this.isCompressed) {
             // SF3
             // If compressed, decode
-            this.audioData = this.decodeVorbis();
-            return this.audioData;
+
+            const localCompressedData = this.compressedData;
+            if (localCompressedData === undefined) {
+                throw new Error(
+                    "Sample data is undefined for a BasicSample instance."
+                );
+            }
+
+            const sampleHeader: string = readBinaryString(
+                localCompressedData,
+                4,
+                0
+            );
+
+            switch (sampleHeader) {
+                default: {
+                    throw new Error(`Unsupported sample type: ${sampleHeader}`);
+                }
+                case "OggS": {
+                    const hdr: string = readBinaryString(
+                        localCompressedData,
+                        7,
+                        29
+                    );
+                    switch (hdr) {
+                        default: {
+                            throw new Error(`Unsupported sample type: ${hdr}`);
+                        }
+
+                        case "pusHead": {
+                            // Opus - unsupported in SFE 4.0
+                            throw new Error(`Unsupported sample type: opus`);
+                        }
+
+                        case "vorbis": {
+                            // Vorbis - supported
+                            this.audioData = this.decodeVorbis();
+                            return this.audioData;
+                        }
+                    }
+                }
+                case "fLaC": {
+                    // FLAC
+                    throw new Error(
+                        `FLAC is currently unsupported. More information at https://github.com/SFe-Team-was-taken/SFeReferenceImplementation_Core/issues/1.`
+                    );
+                }
+                case "RIFF": {
+                    const wave: string = readBinaryString(
+                        localCompressedData,
+                        4,
+                        8
+                    );
+                    if (wave === "WAVE") {
+                        this.audioData = this.decodeWaveContainer();
+                        return this.audioData;
+                    } else {
+                        throw new Error(`Unsupported sample type: ${wave}`);
+                    }
+                }
+            }
         }
         throw new Error("Sample data is undefined for a BasicSample instance.");
     }
@@ -375,6 +438,82 @@ export class BasicSample {
         } catch (error) {
             // Do not error out, fill with silence
             SpessaLog.warn(
+                `Error decoding sample ${this.name}: ${error as Error}`
+            );
+            return new Float32Array(this.loopEnd);
+        }
+    }
+    protected decodeWaveContainer(): Float32Array {
+        if (this.audioData) {
+            return this.audioData;
+        }
+        if (!this.compressedData) {
+            throw new Error("Compressed data is missing.");
+        }
+        try {
+            // COMPLETE ME
+            console.log("This is a test");
+            const sampleData = new IndexedByteArray(this.compressedData);
+            sampleData.currentIndex = 12;
+            const chunks: RIFFChunk[] = [];
+
+            while (sampleData.currentIndex < sampleData.length) {
+                chunks.push(RIFFChunk.read(sampleData));
+            }
+
+            const fmtChunk = chunks.find((c) => c.header === "fmt ");
+            if (!fmtChunk) {
+                throw new Error("No fmt chunk in the wave file!");
+            }
+
+            // https://github.com/tpn/winsdk-10/blob/9b69fd26ac0c7d0b83d378dba01080e93349c2ed/Include/10.0.14393.0/shared/mmreg.h#L2108
+            const wFormatTag = readLittleEndianIndexed(fmtChunk.data, 2);
+            const channelsAmount = readLittleEndianIndexed(fmtChunk.data, 2);
+            if (channelsAmount !== 1) {
+                throw new Error(
+                    `Only mono samples are supported (for now). Fmt reports ${channelsAmount} channels.`
+                );
+            }
+            /* Const sampleRate = */ readLittleEndianIndexed(fmtChunk.data, 4);
+            // Skip avg bytes
+            readLittleEndianIndexed(fmtChunk.data, 4);
+            // BlockAlign
+            readLittleEndianIndexed(fmtChunk.data, 2);
+            // It's bits per sample because one channel
+            const wBitsPerSample = readLittleEndianIndexed(fmtChunk.data, 2);
+            const bytesPerSample = wBitsPerSample / 8;
+            const dataChunk = chunks.find((c) => c.header === "data");
+            if (!dataChunk) {
+                throw new Error("No data chunk in the WAVE chunk!");
+            }
+            let decodedSampleData;
+            switch (wFormatTag) {
+                default: {
+                    SpessaLog.warn(
+                        `Failed to decode sample. Unknown wFormatTag: ${wFormatTag}`
+                    );
+                    decodedSampleData = new Float32Array(
+                        dataChunk.data.length / bytesPerSample
+                    );
+                    break;
+                }
+                case W_FORMAT_TAG.PCM: {
+                    decodedSampleData = readPCM(dataChunk.data, bytesPerSample);
+                    break;
+                }
+                case W_FORMAT_TAG.ALAW: {
+                    decodedSampleData = readALAW(
+                        dataChunk.data,
+                        bytesPerSample
+                    );
+                    break;
+                }
+            }
+            console.log(decodedSampleData);
+            return decodedSampleData;
+        } catch (error) {
+            // Do not error out, fill with silence
+            console.warn(
                 `Error decoding sample ${this.name}: ${error as Error}`
             );
             return new Float32Array(this.loopEnd);

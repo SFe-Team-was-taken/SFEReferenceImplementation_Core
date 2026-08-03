@@ -67,6 +67,8 @@ $RECYCLE.BIN/
 
 # Other
 dist/
+!src/externals/libflac/dist/
+!src/externals/libflac/dist/**
 /node_modules/
 site/
 .cache

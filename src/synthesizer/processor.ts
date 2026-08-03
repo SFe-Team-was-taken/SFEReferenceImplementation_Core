@@ -2,6 +2,7 @@ import { SpessaLog } from "../utils/loggin";
 import { ConsoleColors } from "../utils/other";
 import { EMBEDDED_SOUND_BANK_ID } from "./audio_engine/synth_constants";
 import { stbvorbis } from "../externals/stbvorbis_sync/stbvorbis_wrapper";
+import { libFlac } from "../externals/libflac/libflac_wrapper";
 import { DEFAULT_SYNTH_OPTIONS } from "./audio_engine/synth_processor_options";
 import { fillWithDefaults } from "../utils/fill_with_defaults";
 import {
@@ -34,13 +35,17 @@ import type { SysExAcceptedArray } from "../midi/types";
  * purpose: the core synthesis engine
  */
 
+const setAsInitialized = (): boolean => true;
+
 // The core synthesis engine of spessasynth.
 export class SpessaSynthProcessor {
     /**
      * Controls if the processor is fully initialized.
      */
-    public readonly processorInitialized: Promise<boolean> =
-        stbvorbis.isInitialized;
+    public readonly processorInitialized: Promise<boolean> = Promise.all([
+        stbvorbis.isInitialized,
+        libFlac.isInitialized
+    ]).then(setAsInitialized);
     /**
      * Sample rate in Hertz.
      */

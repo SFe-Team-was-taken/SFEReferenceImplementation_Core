@@ -12,6 +12,7 @@ import { BasicInstrument } from "./basic_instrument";
 import { BasicPreset } from "./basic_preset";
 import { BankSelectHacks } from "../../utils/midi_hacks";
 import { stbvorbis } from "../../externals/stbvorbis_sync/stbvorbis_wrapper";
+import { libFlac } from "../../externals/libflac/libflac_wrapper";
 
 import type {
     DLSWriteOptions,
@@ -39,6 +40,7 @@ export class BasicSoundBank {
      * Indicates if the SF3/SF2Pack decoder is ready.
      */
     public static isSF3DecoderReady: Promise<boolean> = stbvorbis.isInitialized;
+    public static isFlacDecoderReady: Promise<boolean> = libFlac.isInitialized;
 
     /**
      * The type of the sound bank that was loaded.

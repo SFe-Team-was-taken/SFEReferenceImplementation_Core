@@ -1,3 +1,11 @@
+libflacjs 5.6.0: https://github.com/mmig/libflac.js
+
 LICENSE is for libflac.min.wasm.js which is licensed under MIT.
 
-libflac.min.wasm.js was recompiled from the reference implementation of FLAC by Xiph.Org and Josh Coalson, which is licensed under BSD.
+libflac.min.wasm.js was recompiled from the reference implementation of FLAC by Xiph.Org and Josh Coalson, which is licensed under the 3-clause BSD license.
+
+decoder.ts and before-ready-handler.ts were modified slightly to allow it to work in SpessaSynth (`spessasynth_type_patch.patch`).
+
+The structure of `libflac_wrapper.ts` was modelled after `stbvorbis_wrapper.ts` that is available in SpessaSynth.
+
+Later, we will need to shrink the library to fit in one file similarly to the other externals in SpessaSynth, but that's for later.

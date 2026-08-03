@@ -1,5 +1,6 @@
 import { IndexedByteArray } from "../../utils/indexed_array";
 import { stbvorbis } from "../../externals/stbvorbis_sync/stbvorbis_wrapper";
+import { libFlac } from "../../externals/libflac/libflac_wrapper";
 import { type SampleType, SampleTypes } from "../enums";
 import type { BasicInstrument } from "./basic_instrument";
 import type { SampleEncodingFunction } from "../types";
@@ -340,9 +341,8 @@ export class BasicSample {
                 }
                 case "fLaC": {
                     // FLAC
-                    throw new Error(
-                        `FLAC is currently unsupported. More information at https://github.com/SFe-Team-was-taken/SFeReferenceImplementation_Core/issues/1.`
-                    );
+                    this.audioData = this.decodeFlac();
+                    return this.audioData;
                 }
                 case "RIFF": {
                     const wave: string = readBinaryString(
@@ -443,6 +443,28 @@ export class BasicSample {
             return new Float32Array(this.loopEnd);
         }
     }
+
+    protected decodeFlac(): Float32Array {
+        if (this.audioData) {
+            return this.audioData;
+        }
+        if (!this.compressedData) {
+            throw new Error("Compressed data is missing.");
+        }
+        try {
+            const flac = libFlac.decode(this.compressedData);
+            const decoded = new IndexedByteArray(flac.data);
+            const decodedSampleData = readPCM(decoded, flac.bytesPerSample);
+            return decodedSampleData;
+        } catch (error) {
+            // Do not error out, fill with silence
+            console.warn(
+                `Error decoding sample ${this.name}: ${error as Error}`
+            );
+            return new Float32Array(this.loopEnd);
+        }
+    }
+
     protected decodeWaveContainer(): Float32Array {
         if (this.audioData) {
             return this.audioData;
@@ -451,8 +473,6 @@ export class BasicSample {
             throw new Error("Compressed data is missing.");
         }
         try {
-            // COMPLETE ME
-            console.log("This is a test");
             const sampleData = new IndexedByteArray(this.compressedData);
             sampleData.currentIndex = 12;
             const chunks: RIFFChunk[] = [];
@@ -509,7 +529,6 @@ export class BasicSample {
                     break;
                 }
             }
-            console.log(decodedSampleData);
             return decodedSampleData;
         } catch (error) {
             // Do not error out, fill with silence

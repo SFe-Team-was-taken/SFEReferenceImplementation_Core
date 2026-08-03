@@ -1,0 +1,13 @@
+diff --git a/src/externals/libflac/src/decoder.ts b/src/externals/libflac/src/decoder.ts
+--- a/src/externals/libflac/src/decoder.ts
++++ b/src/externals/libflac/src/decoder.ts
+@@
+-import { Flac, DestroyedEvent, decoder_read_callback_fn, decoder_write_callback_fn, decoder_error_callback_fn, metadata_callback_fn, StreamMetadata , ReadResult , FLAC__StreamDecoderState, CompletedReadResult , CodingOptions } from '../index.d';
++import type { Flac, DestroyedEvent, decoder_read_callback_fn, decoder_write_callback_fn, decoder_error_callback_fn, metadata_callback_fn, StreamMetadata , ReadResult , FLAC__StreamDecoderState, CompletedReadResult , CodingOptions } from '../index.d';
+
+diff --git a/src/externals/libflac/src/before-ready-handler.ts b/src/externals/libflac/src/before-ready-handler.ts
+--- a/src/externals/libflac/src/before-ready-handler.ts
++++ b/src/externals/libflac/src/before-ready-handler.ts
+@@
+-import { Flac, ReadyEvent } from '../index.d';
++import type { Flac, ReadyEvent } from '../index.d';

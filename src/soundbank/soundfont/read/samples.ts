@@ -137,9 +137,6 @@ export class SoundFontSample extends BasicSample {
                     }
                     case "fLaC": {
                         // FLAC
-                        throw new Error(
-                            `FLAC is currently unsupported. More information at https://github.com/SFe-Team-was-taken/SFeReferenceImplementation_Core/issues/1.`
-                        );
                         break;
                     }
                     case "RIFF": {

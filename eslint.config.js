@@ -5,7 +5,7 @@ import eslintConfigPrettier from "eslint-config-prettier/flat";
 import eslint from "@eslint/js";
 
 export default tseslint.config(
-    { ignores: ["dist", "tests/files/**/*"] },
+    { ignores: ["dist", "tests/files/**/*", "src/externals/libflac/**/*"] },
     {
         files: ["**/*.{ts,tsx}"],
         extends: [

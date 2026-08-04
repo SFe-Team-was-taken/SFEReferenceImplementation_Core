@@ -11,7 +11,8 @@ import { ConsoleColors } from "../../../utils/other";
 import { SpessaLog } from "../../../utils/loggin";
 import {
     readBinaryString,
-    readBinaryStringIndexed
+    readBinaryStringIndexed,
+    decodeUtf8
 } from "../../../utils/byte_functions/string";
 import { stbvorbis } from "../../../externals/stbvorbis_sync/stbvorbis_wrapper";
 import { BasicSoundBank } from "../../basic_soundbank/basic_soundbank";
@@ -73,7 +74,7 @@ export class SoundFont2 extends BasicSoundBank {
 
         while (infoChunk.data.length > infoChunk.data.currentIndex) {
             const chunk = RIFFChunk.read(infoChunk.data, rf64);
-            const text = readBinaryString(chunk.data, chunk.data.length);
+            const text = decodeUtf8(chunk.data);
             // Special cases
             const headerTyped = chunk.header as SF2InfoFourCC;
             switch (headerTyped) {
@@ -203,9 +204,9 @@ export class SoundFont2 extends BasicSoundBank {
             flag: RIFFChunk;
         }> = {};
         if (isfeChunk !== undefined) {
-            isfeChunks.sfty = RIFFChunk.read(isfeChunk.data);
-            isfeChunks.sfvx = RIFFChunk.read(isfeChunk.data);
-            isfeChunks.flag = RIFFChunk.read(isfeChunk.data);
+            isfeChunks.sfty = RIFFChunk.read(isfeChunk.data, rf64);
+            isfeChunks.sfvx = RIFFChunk.read(isfeChunk.data, rf64);
+            isfeChunks.flag = RIFFChunk.read(isfeChunk.data, rf64);
             // Verify ISFe-list chunks
 
             const sftyStr = readBinaryString(isfeChunks.sfty?.data);
@@ -623,172 +624,206 @@ export class SoundFont2 extends BasicSoundBank {
     }
     protected loadSupportedFlags(supportedList: FeatureFlagList[]) {
         // Todo: do this in a better way
-        supportedList.push({
-            branch: 0,
-            leaf: 0,
-            flags: 15,
-            featureName: "Tuning"
-        }, {
-            branch: 0,
-            leaf: 1,
-            flags: 3,
-            featureName: "Looping"
-        }, {
-            branch: 0,
-            leaf: 2,
-            flags: 1,
-            featureName: "Filter Types"
-        }, {
-            branch: 0,
-            leaf: 3,
-            flags: 884_736_096,
-            featureName: "Filter Params"
-        }, {
-            branch: 0,
-            leaf: 4,
-            flags: 7,
-            featureName: "Attenuation"
-        }, {
-            branch: 0,
-            leaf: 5,
-            flags: 69_391,
-            featureName: "Effects"
-        }, {
-            branch: 0,
-            leaf: 6,
-            flags: 15,
-            featureName: "LFO"
-        }, {
-            branch: 0,
-            leaf: 7,
-            flags: 524_287,
-            featureName: "Envelopes"
-        }, {
-            branch: 0,
-            leaf: 8,
-            flags: 231_169,
-            featureName: "MIDI CC"
-        }, {
-            branch: 0,
-            leaf: 9,
-            flags: 127,
-            featureName: "Generators"
-        }, {
-            branch: 0,
-            leaf: 10,
-            flags: 127,
-            featureName: "Zones"
-        }, {
-            branch: 0,
-            leaf: 11,
-            flags: 0,
-            featureName: "Reserved"
-        }, {
-            branch: 1,
-            leaf: 0,
-            flags: 16_383,
-            featureName: "Modulators"
-        }, {
-            branch: 1,
-            leaf: 1,
-            flags: 51,
-            featureName: "Modulator Controllers"
-        }, {
-            branch: 1,
-            leaf: 2,
-            flags: 998_838,
-            featureName: "Modulator Parameters"
-        }, {
-            branch: 1,
-            leaf: 3,
-            flags: 672_137_215,
-            featureName: "Modulator Parameters"
-        }, {
-            branch: 1,
-            leaf: 4,
-            flags: 0,
-            featureName: "Modulator Parameters"
-        }, {
-            branch: 1,
-            leaf: 5,
-            flags: 0,
-            featureName: "NRPN"
-        }, {
-            branch: 1,
-            leaf: 6,
-            flags: 263_167,
-            featureName: "Default Modulators"
-        }, {
-            branch: 1,
-            leaf: 7,
-            flags: 0,
-            featureName: "Reserved"
-        }, {
-            branch: 1,
-            leaf: 8,
-            flags: 0,
-            featureName: "Reserved"
-        }, {
-            branch: 2,
-            leaf: 0,
-            flags: 1,
-            featureName: "24-Bit Samples"
-        }, {
-            branch: 2,
-            leaf: 1,
-            flags: 0,
-            featureName: "8-Bit Samples"
-        }, {
-            branch: 2,
-            leaf: 2,
-            flags: 0,
-            featureName: "32-Bit Samples"
-        }, {
-            branch: 2,
-            leaf: 3,
-            flags: 0,
-            featureName: "64-Bit Samples"
-        }, {
-            branch: 3,
-            leaf: 0,
-            flags: 1,
-            featureName: "SFe Compression"
-        }, {
-            branch: 3,
-            leaf: 1,
-            flags: 1,
-            featureName: "Compression Formats"
-        }, {
-            branch: 4,
-            leaf: 0,
-            flags: 0,
-            featureName: "Metadata"
-        }, {
-            branch: 4,
-            leaf: 1,
-            flags: 0,
-            featureName: "Reserved"
-        }, {
-            branch: 4,
-            leaf: 2,
-            flags: 0,
-            featureName: "Sample ROM"
-        }, {
-            branch: 4,
-            leaf: 3,
-            flags: 0,
-            featureName: "ROM Emulator"
-        }, {
-            branch: 4,
-            leaf: 4,
-            flags: 0,
-            featureName: "Reserved"
-        }, {
-            branch: 5,
-            leaf: 0,
-            flags: 0,
-            featureName: "End of Flags"
-        });
+        supportedList.push(
+            {
+                branch: 0,
+                leaf: 0,
+                flags: 15,
+                featureName: "Tuning"
+            },
+            {
+                branch: 0,
+                leaf: 1,
+                flags: 3,
+                featureName: "Looping"
+            },
+            {
+                branch: 0,
+                leaf: 2,
+                flags: 1,
+                featureName: "Filter Types"
+            },
+            {
+                branch: 0,
+                leaf: 3,
+                flags: 884_736_096,
+                featureName: "Filter Params"
+            },
+            {
+                branch: 0,
+                leaf: 4,
+                flags: 7,
+                featureName: "Attenuation"
+            },
+            {
+                branch: 0,
+                leaf: 5,
+                flags: 69_391,
+                featureName: "Effects"
+            },
+            {
+                branch: 0,
+                leaf: 6,
+                flags: 15,
+                featureName: "LFO"
+            },
+            {
+                branch: 0,
+                leaf: 7,
+                flags: 524_287,
+                featureName: "Envelopes"
+            },
+            {
+                branch: 0,
+                leaf: 8,
+                flags: 231_169,
+                featureName: "MIDI CC"
+            },
+            {
+                branch: 0,
+                leaf: 9,
+                flags: 127,
+                featureName: "Generators"
+            },
+            {
+                branch: 0,
+                leaf: 10,
+                flags: 127,
+                featureName: "Zones"
+            },
+            {
+                branch: 0,
+                leaf: 11,
+                flags: 0,
+                featureName: "Reserved"
+            },
+            {
+                branch: 1,
+                leaf: 0,
+                flags: 16_383,
+                featureName: "Modulators"
+            },
+            {
+                branch: 1,
+                leaf: 1,
+                flags: 51,
+                featureName: "Modulator Controllers"
+            },
+            {
+                branch: 1,
+                leaf: 2,
+                flags: 998_838,
+                featureName: "Modulator Parameters"
+            },
+            {
+                branch: 1,
+                leaf: 3,
+                flags: 672_137_215,
+                featureName: "Modulator Parameters"
+            },
+            {
+                branch: 1,
+                leaf: 4,
+                flags: 0,
+                featureName: "Modulator Parameters"
+            },
+            {
+                branch: 1,
+                leaf: 5,
+                flags: 0,
+                featureName: "NRPN"
+            },
+            {
+                branch: 1,
+                leaf: 6,
+                flags: 263_167,
+                featureName: "Default Modulators"
+            },
+            {
+                branch: 1,
+                leaf: 7,
+                flags: 0,
+                featureName: "Reserved"
+            },
+            {
+                branch: 1,
+                leaf: 8,
+                flags: 0,
+                featureName: "Reserved"
+            },
+            {
+                branch: 2,
+                leaf: 0,
+                flags: 1,
+                featureName: "24-Bit Samples"
+            },
+            {
+                branch: 2,
+                leaf: 1,
+                flags: 0,
+                featureName: "8-Bit Samples"
+            },
+            {
+                branch: 2,
+                leaf: 2,
+                flags: 0,
+                featureName: "32-Bit Samples"
+            },
+            {
+                branch: 2,
+                leaf: 3,
+                flags: 0,
+                featureName: "64-Bit Samples"
+            },
+            {
+                branch: 3,
+                leaf: 0,
+                flags: 1,
+                featureName: "SFe Compression"
+            },
+            {
+                branch: 3,
+                leaf: 1,
+                flags: 1,
+                featureName: "Compression Formats"
+            },
+            {
+                branch: 4,
+                leaf: 0,
+                flags: 0,
+                featureName: "Metadata"
+            },
+            {
+                branch: 4,
+                leaf: 1,
+                flags: 0,
+                featureName: "Reserved"
+            },
+            {
+                branch: 4,
+                leaf: 2,
+                flags: 0,
+                featureName: "Sample ROM"
+            },
+            {
+                branch: 4,
+                leaf: 3,
+                flags: 0,
+                featureName: "ROM Emulator"
+            },
+            {
+                branch: 4,
+                leaf: 4,
+                flags: 0,
+                featureName: "Reserved"
+            },
+            {
+                branch: 5,
+                leaf: 0,
+                flags: 0,
+                featureName: "End of Flags"
+            }
+        );
     }
 
     protected verifyFlag(

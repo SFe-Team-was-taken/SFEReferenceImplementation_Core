@@ -1,6 +1,9 @@
 import { IndexedByteArray } from "../../../utils/indexed_array";
 import { RIFFChunk } from "../../../utils/riff_chunk";
-import { getStringBytes } from "../../../utils/byte_functions/string";
+import {
+    getStringBytes,
+    getStringBytesUtf8
+} from "../../../utils/byte_functions/string";
 import { ConsoleColors, isNonZero } from "../../../utils/other";
 import { getSDTA } from "./sdta";
 import { getSHDR } from "./shdr";
@@ -105,11 +108,11 @@ function writeSF(
         if (!data) return;
 
         // Todo: Reimplement proper versioning
-        
+
         infoArrays.push(
             ...RIFFChunk.getParts(
                 type,
-                [getStringBytes(data, true, true)], // Pad with zero and ensure even length
+                [getStringBytesUtf8(data, true, true)], // Pad with zero and ensure even length
                 rf64
             )
         );
@@ -221,13 +224,10 @@ function writeSF(
     console.log(shdrChunk);
     // Check the chunk's xdta for usable information
     // Hopefully this doesn't break actual xdta implementation
-    const xdtaDataPresent = chunks.map((c) => c.xdta.every(isNonZero));;
+    const xdtaDataPresent = chunks.map((c) => c.xdta.every(isNonZero));
     const writeXdta =
         writeExtendedLimits &&
-        (instData.writeXdta ||
-            presData.writeXdta ||
-            xdtaDataPresent
-        )
+        (instData.writeXdta || presData.writeXdta || xdtaDataPresent);
 
     if (writeXdta) {
         SpessaLog.info(

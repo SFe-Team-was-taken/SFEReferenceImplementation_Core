@@ -179,7 +179,8 @@ export class RIFFChunk {
         header: FourCC,
         chunks: Uint8Array[],
         rf64 = false,
-        isList = false
+        isList = false,
+        padByte = true
     ) {
         let headerWritten = header;
         let totalSize = chunks.reduce((len, c) => c.length + len, 0);
@@ -205,7 +206,7 @@ export class RIFFChunk {
         parts.push(...chunks);
 
         // Pad byte, does not get included in the size
-        if (totalSize % 2 !== 0) parts.push(new Uint8Array(1));
+        if (totalSize % 2 !== 0 && !padByte) parts.push(new Uint8Array(1));
 
         return parts;
     }

@@ -24,6 +24,7 @@ export function getSDTA(
     let writtenCount = 0;
     const sampleData: Uint8Array[] = [];
     const sampleSize: number[] = [];
+    let bankContainerised = false;
 
     for (const s of bank.samples) {
         // Raw data: either copy s16le or encoded vorbis or encode manually if overridden
@@ -47,11 +48,17 @@ export function getSDTA(
          */
         sampleData.push(r);
         sampleSize.push(r.length);
-        if (!s.isCompressed) sampleData.push(new Uint8Array(92));
+        if (!s.isCompressed) {
+            sampleData.push(new Uint8Array(92));
+            bankContainerised = true;
+        }
     }
 
-    const smpl = RIFFChunk.getParts("smpl", sampleData, rf64);
-    const sdta = RIFFChunk.getParts("sdta", smpl, rf64, true);
+    const smpl = bankContainerised
+        ? RIFFChunk.getParts("smpl", sampleData, rf64, false, false) // Actually enforce the prohibition on pad bytes for SF3
+        : RIFFChunk.getParts("smpl", sampleData, rf64, false, true); // If not compressed or containerised, use the pad byte
+
+    const sdta = RIFFChunk.getParts("sdta", smpl, rf64, true, true);
 
     let offset = 0;
     // Write out
